@@ -90,17 +90,18 @@ frequency_words = pad_bram_words(uint32(cfg.frequency_hz), cfg.bram_depth_words)
 adc_words = pad_bram_words(pack_int16_pair(direct_capture, filtered_capture), ...
     cfg.bram_depth_words);
 
-%% Write COE files next to this script
-output_dir = fileparts(mfilename('fullpath'));
-write_coe(fullfile(output_dir, 'sweep_frequency_hz.coe'), frequency_words);
-write_coe(fullfile(output_dir, 'sweep_adc_capture.coe'), adc_words);
+%% Write version-controlled COE data under doc/
+script_dir = fileparts(mfilename('fullpath'));
+coe_output_dir = fullfile(script_dir, '..', 'doc');
+write_coe(fullfile(coe_output_dir, 'sweep_frequency_hz.coe'), frequency_words);
+write_coe(fullfile(coe_output_dir, 'sweep_adc_capture.coe'), adc_words);
 
 metadata = table(cfg.frequency_hz, direct_capture, filtered_capture, ...
     direct_rms, filtered_rms, direct_rms_float, filtered_rms_float, ...
     'VariableNames', {'frequency_hz', 'direct_adc_int16', ...
     'filtered_adc_int16', 'direct_rms_uint16', 'filtered_rms_uint16', ...
     'direct_rms_float', 'filtered_rms_float'});
-writetable(metadata, fullfile(output_dir, 'sweep_metadata.csv'));
+writetable(metadata, fullfile(script_dir, 'sweep_metadata.csv'));
 
 %% Produce a verification figure for MATLAB-side inspection
 figure('Color', 'w', 'Name', 'Dual-channel FPGA sweep model');
@@ -112,14 +113,14 @@ ylabel('RMS ADC codes');
 legend('Direct ADC path', 'Filtered ADC path', 'Location', 'northeast');
 title(sprintf('20 Hz sweep, %s, f_c = %.0f Hz', ...
     cfg.filter_type, cfg.filter_cutoff_hz));
-exportgraphics(gcf, fullfile(output_dir, 'dual_channel_sweep_response.png'), ...
+exportgraphics(gcf, fullfile(script_dir, 'dual_channel_sweep_response.png'), ...
     'Resolution', 150);
 
 fprintf('Generated %d sweep points from %d Hz to %d Hz.\n', ...
     point_count, cfg.f_start_hz, cfg.f_stop_hz);
 fprintf('Each COE file is zero-padded to %d 32-bit BRAM words.\n', ...
     cfg.bram_depth_words);
-fprintf('COE files written to: %s\n', output_dir);
+fprintf('COE files written to: %s\n', coe_output_dir);
 
 function h = design_lowpass_fir(tap_count, cutoff_hz, fs_hz)
     if mod(tap_count, 2) == 0

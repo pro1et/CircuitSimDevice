@@ -16,18 +16,24 @@ proc get_script_folder {} {
 }
 variable script_folder
 set script_folder [_tcl::get_script_folder]
+variable project_root_dir
+set project_root_dir [file normalize "$script_folder/.."]
+variable sweep_coe_file
+set sweep_coe_file [file normalize "$project_root_dir/doc/sweep_adc_capture.coe"]
+
+if { ![file isfile $sweep_coe_file] } {
+   error "Required BRAM initialization file not found: $sweep_coe_file"
+}
 
 ################################################################
 # Check if script is running in correct Vivado version.
 ################################################################
-set scripts_vivado_version 2022.2
+set scripts_vivado_version 2025.2
 set current_vivado_version [version -short]
 
 if { [string first $scripts_vivado_version $current_vivado_version] == -1 } {
    puts ""
-   catch {common::send_gid_msg -ssname BD::TCL -id 2041 -severity "ERROR" "This script was generated using Vivado <$scripts_vivado_version> and is being run in <$current_vivado_version> of Vivado. Please run the script in Vivado <$scripts_vivado_version> then open the design in Vivado <$current_vivado_version>. Upgrade the design by running \"Tools => Report => Report IP Status...\", then run write_bd_tcl to create an updated script."}
-
-   return 1
+   error "This repository expects Vivado <$scripts_vivado_version>, but the current version is <$current_vivado_version>."
 }
 
 ################################################################
@@ -44,13 +50,18 @@ if { [string first $scripts_vivado_version $current_vivado_version] == -1 } {
 
 # Please add the sources of those modules before sourcing this Tcl script.
 
-# If there is no project opened, this script will create a
-# project, but make sure you do not have an existing project
-# <./myproj/project_1.xpr> in the current working folder.
+# If no project is open, create the repository project under work/ and add the
+# RTL sources needed by the top_module module reference.
 
 set list_projs [get_projects -quiet]
 if { $list_projs eq "" } {
-   create_project project_1 myproj -part xc7z020clg400-2
+   set standalone_project_name "CircuitSimDevice"
+   create_project $standalone_project_name [file normalize "$project_root_dir/work"] -part xc7z020clg400-2
+   add_files -fileset sources_1 [list \
+      [file normalize "$project_root_dir/src/hdl/button_debounce.v"] \
+      [file normalize "$project_root_dir/src/hdl/top_module.v"] \
+   ]
+   update_compile_order -fileset sources_1
 }
 
 
@@ -196,6 +207,7 @@ if { $bCheckIPsPassed != 1 } {
 proc create_root_design { parentCell } {
 
   variable script_folder
+  variable sweep_coe_file
   variable design_name
 
   if { $parentCell eq "" } {
@@ -259,7 +271,7 @@ proc create_root_design { parentCell } {
   set blk_mem_gen_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:blk_mem_gen:8.4 blk_mem_gen_0 ]
   set_property -dict [list \
     CONFIG.Assume_Synchronous_Clk {true} \
-    CONFIG.Coe_File {e:/FPGA_PJ/Prepare/CircuitSimDevice/matlab/sweep_adc_capture.coe} \
+    CONFIG.Coe_File $sweep_coe_file \
     CONFIG.Load_Init_File {true} \
     CONFIG.Memory_Type {True_Dual_Port_RAM} \
     CONFIG.Write_Depth_A {4096} \

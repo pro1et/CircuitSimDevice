@@ -42,13 +42,13 @@ PL 时钟由 PS 的 `FCLK_CLK0` 提供，频率为 **100 MHz**。AXI SmartConnec
 MATLAB 数据生成脚本：
 
 ```text
-E:/FPGA_PJ/Prepare/matlab/generate_dual_channel_sweep_coe.m
+matlab/generate_dual_channel_sweep_coe.m
 ```
 
 BRAM 初始化文件：
 
 ```text
-E:/FPGA_PJ/Prepare/matlab/sweep_adc_capture.coe
+doc/sweep_adc_capture.coe
 ```
 
 数据配置如下：
