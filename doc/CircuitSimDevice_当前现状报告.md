@@ -17,7 +17,7 @@ RMS、频响计算和其他信号处理不在 PL 中实现，由后续 Vitis 软
 Mizar Z7 PL_KEY1（button_0，低有效）
         │
         ▼
-top_module_0
+LED_0
   - 双触发器同步
   - 20 ms 消抖
   - button_pressed（高有效）
@@ -99,7 +99,7 @@ int16_t filtered_adc = (int16_t)(word >> 16);
 
 | 文件 | 作用 |
 | --- | --- |
-| `src/hdl/top_module.v` | 按键前端模块；输出消抖状态和事件，控制 LED |
+| `src/hdl/LED.v` | 按键前端模块；输出消抖状态和事件，控制 LED |
 | `src/hdl/button_debounce.v` | 按键同步与 20 ms 消抖逻辑 |
 | `src/constrs/button_led.xdc` | `button_0` 绑定 PL_KEY1（R19），`led_0` 绑定 PL_LED1（G14） |
 | `src/README.md` | RTL 模块与 Block Design 连接说明 |

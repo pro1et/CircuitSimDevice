@@ -46,12 +46,12 @@ if { [string first $scripts_vivado_version $current_vivado_version] == -1 } {
 
 # The design that will be created by this Tcl script contains the following 
 # module references:
-# top_module
+# LED
 
 # Please add the sources of those modules before sourcing this Tcl script.
 
 # If no project is open, create the repository project under work/ and add the
-# RTL sources needed by the top_module module reference.
+# RTL sources needed by the LED module reference.
 
 set list_projs [get_projects -quiet]
 if { $list_projs eq "" } {
@@ -59,7 +59,7 @@ if { $list_projs eq "" } {
    create_project $standalone_project_name [file normalize "$project_root_dir/work"] -part xc7z020clg400-2
    add_files -fileset sources_1 [list \
       [file normalize "$project_root_dir/src/hdl/button_debounce.v"] \
-      [file normalize "$project_root_dir/src/hdl/top_module.v"] \
+      [file normalize "$project_root_dir/src/hdl/LED.v"] \
    ]
    update_compile_order -fileset sources_1
 }
@@ -172,7 +172,7 @@ xilinx.com:ip:proc_sys_reset:5.0\
 set bCheckModules 1
 if { $bCheckModules == 1 } {
    set list_check_mods "\ 
-top_module\
+LED\
 "
 
    set list_mods_missing ""
@@ -394,13 +394,13 @@ proc create_root_design { parentCell } {
   # Create instance: rst_ps7_0_100M, and set properties
   set rst_ps7_0_100M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 rst_ps7_0_100M ]
 
-  # Create instance: top_module_0, and set properties
-  set block_name top_module
-  set block_cell_name top_module_0
-  if { [catch {set top_module_0 [create_bd_cell -type module -reference $block_name $block_cell_name] } errmsg] } {
+  # Create instance: LED_0, and set properties
+  set block_name LED
+  set block_cell_name LED_0
+  if { [catch {set LED_0 [create_bd_cell -type module -reference $block_name $block_cell_name] } errmsg] } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2095 -severity "ERROR" "Unable to add referenced block <$block_name>. Please add the files for ${block_name}'s definition into the project."}
      return 1
-   } elseif { $top_module_0 eq "" } {
+   } elseif { $LED_0 eq "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2096 -severity "ERROR" "Unable to referenced block <$block_name>. Please add the files for ${block_name}'s definition into the project."}
      return 1
    }
@@ -415,12 +415,12 @@ proc create_root_design { parentCell } {
 
   # Create port connections
   connect_bd_net -net axi_gpio_0_ip2intc_irpt [get_bd_pins axi_gpio_0/ip2intc_irpt] [get_bd_pins processing_system7_0/IRQ_F2P]
-  connect_bd_net -net button_0_1 [get_bd_ports button_0] [get_bd_pins top_module_0/button]
-  connect_bd_net -net processing_system7_0_FCLK_CLK0 [get_bd_pins axi_bram_ctrl_0/s_axi_aclk] [get_bd_pins axi_gpio_0/s_axi_aclk] [get_bd_pins axi_smc/aclk] [get_bd_pins processing_system7_0/FCLK_CLK0] [get_bd_pins processing_system7_0/M_AXI_GP0_ACLK] [get_bd_pins rst_ps7_0_100M/slowest_sync_clk] [get_bd_pins top_module_0/clk]
+  connect_bd_net -net button_0_1 [get_bd_ports button_0] [get_bd_pins LED_0/button]
+  connect_bd_net -net processing_system7_0_FCLK_CLK0 [get_bd_pins axi_bram_ctrl_0/s_axi_aclk] [get_bd_pins axi_gpio_0/s_axi_aclk] [get_bd_pins axi_smc/aclk] [get_bd_pins processing_system7_0/FCLK_CLK0] [get_bd_pins processing_system7_0/M_AXI_GP0_ACLK] [get_bd_pins rst_ps7_0_100M/slowest_sync_clk] [get_bd_pins LED_0/clk]
   connect_bd_net -net processing_system7_0_FCLK_RESET0_N [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_pins rst_ps7_0_100M/ext_reset_in]
-  connect_bd_net -net rst_ps7_0_100M_peripheral_aresetn [get_bd_pins axi_bram_ctrl_0/s_axi_aresetn] [get_bd_pins axi_gpio_0/s_axi_aresetn] [get_bd_pins axi_smc/aresetn] [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins top_module_0/resetn]
-  connect_bd_net -net top_module_0_button_pressed [get_bd_pins axi_gpio_0/gpio_io_i] [get_bd_pins top_module_0/button_pressed]
-  connect_bd_net -net top_module_0_led [get_bd_ports led_0] [get_bd_pins top_module_0/led]
+  connect_bd_net -net rst_ps7_0_100M_peripheral_aresetn [get_bd_pins axi_bram_ctrl_0/s_axi_aresetn] [get_bd_pins axi_gpio_0/s_axi_aresetn] [get_bd_pins axi_smc/aresetn] [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins LED_0/resetn]
+  connect_bd_net -net LED_0_button_pressed [get_bd_pins axi_gpio_0/gpio_io_i] [get_bd_pins LED_0/button_pressed]
+  connect_bd_net -net LED_0_led [get_bd_ports led_0] [get_bd_pins LED_0/led]
 
   # Create address segments
   assign_bd_address -offset 0x40000000 -range 0x00004000 -target_address_space [get_bd_addr_spaces processing_system7_0/Data] [get_bd_addr_segs axi_bram_ctrl_0/S_AXI/Mem0] -force

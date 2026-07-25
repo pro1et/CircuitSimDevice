@@ -24,7 +24,7 @@
 #    (Please see the '$orig_proj_dir' and '$origin_dir' variable setting below at the start of the script)
 #
 #    "../src/hdl/button_debounce.v"
-#    "../src/hdl/top_module.v"
+#    "../src/hdl/LED.v"
 #    "../src/constrs/button_led.xdc"
 #    "system.tcl"
 #
@@ -39,7 +39,7 @@ proc checkRequiredFiles { origin_dir} {
   set status true
   set files [list \
  "[file normalize "$origin_dir/../src/hdl/button_debounce.v"]"\
- "[file normalize "$origin_dir/../src/hdl/top_module.v"]"\
+ "[file normalize "$origin_dir/../src/hdl/LED.v"]"\
  "[file normalize "$origin_dir/../src/constrs/button_led.xdc"]"\
  "[file normalize "$origin_dir/system.tcl"]"\
  "[file normalize "$origin_dir/../doc/sweep_adc_capture.coe"]"\
@@ -185,7 +185,7 @@ add_files -norecurse -fileset $obj $files
 # Import repository-managed RTL files before creating the module-reference BD.
 set files [list \
  [file normalize "$project_root_dir/src/hdl/button_debounce.v"]\
- [file normalize "$project_root_dir/src/hdl/top_module.v"]\
+ [file normalize "$project_root_dir/src/hdl/LED.v"]\
 ]
 set imported_files [import_files -fileset sources_1 $files]
 update_compile_order -fileset sources_1

@@ -5,7 +5,7 @@
 // 
 // Create Date: 2026/07/25 10:20:08
 // Design Name: 
-// Module Name: top_module
+// Module Name: LED
 // Project Name: 
 // Target Devices: 
 // Tool Versions: 
@@ -28,7 +28,7 @@
 //
 // The BRAM is deliberately not instantiated here. Its Port A is owned by
 // axi_bram_ctrl_0 inside the Block Design; add the BMG to that same design.
-module top_module #(
+module LED #(
     parameter integer CLOCK_HZ    = 100_000_000,
     parameter integer DEBOUNCE_MS = 20
 ) (

@@ -1,8 +1,8 @@
 # PL source interface
 
-`hdl/top_module.v` and `hdl/button_debounce.v` form the physical PL-button front end. Add `top_module` to the Vivado Block Design with **Add Module** / **Add Module Reference**; do not set it as the standalone project top.
+`hdl/LED.v` and `hdl/button_debounce.v` form the physical PL-button front end. Add `LED` to the Vivado Block Design with **Add Module** / **Add Module Reference**; do not set it as the standalone project top.
 
-| `top_module` port | Block Design connection |
+| `LED` port | Block Design connection |
 | --- | --- |
 | `clk` | `processing_system7_0/FCLK_CLK0` (100 MHz) |
 | `resetn` | `rst_ps7_0_100M/peripheral_aresetn` |
