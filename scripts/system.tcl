@@ -19,7 +19,7 @@ set script_folder [_tcl::get_script_folder]
 variable project_root_dir
 set project_root_dir [file normalize "$script_folder/.."]
 variable sweep_coe_file
-set sweep_coe_file [file normalize "$project_root_dir/doc/sweep_adc_capture.coe"]
+set sweep_coe_file [file normalize "$project_root_dir/doc/sweep_iq_complete.coe"]
 
 if { ![file isfile $sweep_coe_file] } {
    error "Required BRAM initialization file not found: $sweep_coe_file"
@@ -247,7 +247,10 @@ proc create_root_design { parentCell } {
 
   # Create instance: axi_bram_ctrl_0, and set properties
   set axi_bram_ctrl_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_bram_ctrl:4.1 axi_bram_ctrl_0 ]
-  set_property CONFIG.SINGLE_PORT_BRAM {1} $axi_bram_ctrl_0
+  set_property -dict [list \
+    CONFIG.DATA_WIDTH {64} \
+    CONFIG.SINGLE_PORT_BRAM {1} \
+  ] $axi_bram_ctrl_0
 
 
   # Create instance: axi_gpio_0, and set properties
@@ -274,7 +277,11 @@ proc create_root_design { parentCell } {
     CONFIG.Coe_File $sweep_coe_file \
     CONFIG.Load_Init_File {true} \
     CONFIG.Memory_Type {True_Dual_Port_RAM} \
+    CONFIG.Read_Width_A {64} \
+    CONFIG.Read_Width_B {64} \
     CONFIG.Write_Depth_A {4096} \
+    CONFIG.Write_Width_A {64} \
+    CONFIG.Write_Width_B {64} \
     CONFIG.use_bram_block {Stand_Alone} \
   ] $blk_mem_gen_0
 
@@ -423,7 +430,7 @@ proc create_root_design { parentCell } {
   connect_bd_net -net LED_0_led [get_bd_ports led_0] [get_bd_pins LED_0/led]
 
   # Create address segments
-  assign_bd_address -offset 0x40000000 -range 0x00004000 -target_address_space [get_bd_addr_spaces processing_system7_0/Data] [get_bd_addr_segs axi_bram_ctrl_0/S_AXI/Mem0] -force
+  assign_bd_address -offset 0x40000000 -range 0x00008000 -target_address_space [get_bd_addr_spaces processing_system7_0/Data] [get_bd_addr_segs axi_bram_ctrl_0/S_AXI/Mem0] -force
   assign_bd_address -offset 0x41200000 -range 0x00010000 -target_address_space [get_bd_addr_spaces processing_system7_0/Data] [get_bd_addr_segs axi_gpio_0/S_AXI/Reg] -force
 
 

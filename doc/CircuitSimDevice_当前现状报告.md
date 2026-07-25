@@ -31,8 +31,8 @@ axi_gpio_0 ── ip2intc_irpt ──► Zynq PS IRQ_F2P[0]
 Zynq PS M_AXI_GP0 ──► AXI SmartConnect ──► AXI BRAM Controller
                                                    │
                                                    ▼
-                                    Block Memory Generator，32-bit × 4096
-                                    已由 sweep_adc_capture.coe 初始化
+                                    Block Memory Generator，64-bit × 4096
+                                    已由 sweep_iq_complete.coe 初始化
 ```
 
 PL 时钟由 PS 的 `FCLK_CLK0` 提供，频率为 **100 MHz**。AXI SmartConnect、AXI BRAM Controller、AXI GPIO 和按键消抖逻辑均使用该时钟及 `rst_ps7_0_100M/peripheral_aresetn` 同步复位。
@@ -48,7 +48,7 @@ matlab/generate_dual_channel_sweep_coe.m
 BRAM 初始化文件：
 
 ```text
-doc/sweep_adc_capture.coe
+doc/sweep_iq_complete.coe
 ```
 
 数据配置如下：
@@ -58,15 +58,17 @@ doc/sweep_adc_capture.coe
 | 扫频范围 | 200 Hz 至 60 kHz |
 | 频率步长 | 20 Hz |
 | 有效频点数 | 2991 |
-| BRAM 深度 | 4096 个 32-bit word |
+| BRAM 深度 | 4096 个 64-bit word |
 | 有效索引 | 0 至 2990 |
-| 预留索引 | 2991 至 4095，初始化为 `0x00000000` |
+| 预留索引 | 2991 至 4095，初始化为 `0x0000000000000000` |
 
-每个 32-bit BRAM word 的位域为：
+每个 64-bit BRAM word 的位域为：
 
 ```text
-[31:16]  滤波通道 ADC 原始码，int16，二补码
-[15:0]   直通通道 ADC 原始码，int16，二补码
+[63:48]  I_filtered，int16 Q1.15，二补码
+[47:32]  Q_filtered，int16 Q1.15，二补码
+[31:16]  I_direct，int16 Q1.15，二补码
+[15:0]   Q_direct，int16 Q1.15，二补码
 ```
 
 第 `i` 个有效 word 对应频率：
@@ -81,16 +83,21 @@ frequency_hz = 200 + 20 × i
 
 | 外设 | 地址范围 | 用途 |
 | --- | --- | --- |
-| `axi_bram_ctrl_0` | `0x4000_0000 – 0x4000_3FFF` | 读取 4096 个 32-bit 扫频数据 word |
+| `axi_bram_ctrl_0` | `0x4000_0000 – 0x4000_7FFF` | 读取 4096 个 64-bit 扫频数据 word |
 | `axi_gpio_0` | `0x4120_0000 – 0x4120_FFFF` | 读取按键状态、确认/清除 GPIO 中断 |
 | `IRQ_F2P[0]` | PL 到 PS 中断线 | 接收 `axi_gpio_0/ip2intc_irpt` |
 
 PS 读取第 `i` 个扫频数据时使用：
 
 ```c
-uint32_t word = *(volatile uint32_t *)(0x40000000U + 4U * i);
-int16_t direct_adc   = (int16_t)(word & 0xFFFFU);
-int16_t filtered_adc = (int16_t)(word >> 16);
+uintptr_t address = 0x40000000U + 8U * i;
+uint32_t low  = *(volatile uint32_t *)(address);
+uint32_t high = *(volatile uint32_t *)(address + 4U);
+
+int16_t q_direct   = (int16_t)(low & 0xFFFFU);
+int16_t i_direct   = (int16_t)(low >> 16);
+int16_t q_filtered = (int16_t)(high & 0xFFFFU);
+int16_t i_filtered = (int16_t)(high >> 16);
 ```
 
 有效读取范围为 `i = 0 ... 2990`。
@@ -116,6 +123,6 @@ Block Design 验证中仅保留以下警告：
 /axi_bram_ctrl_0/BRAM_PORTA(BRAM_CTRL)
 ```
 
-该警告由手工连接、且需要载入 COE 的 Stand Alone BMG 引起，属于 Block Design 接口元数据不一致。实际数据路径的时钟、地址、数据、使能和写使能信号均已连接。当前 BMG 参数为 32-bit × 4096，AXI 地址段为 16 KiB，匹配正确。
+该警告由手工连接、且需要载入 COE 的 Stand Alone BMG 引起，属于 Block Design 接口元数据不一致。实际数据路径的时钟、地址、数据、使能和写使能信号均已连接。当前 BMG 参数为 64-bit × 4096，AXI 地址段为 32 KiB，匹配正确。
 
 该警告仍应在后续 bitstream 上板后通过 PS 读取 BRAM 首项、中间项和末项并与 COE 数据比较来验证。

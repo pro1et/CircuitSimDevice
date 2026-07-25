@@ -6,6 +6,8 @@
 
 ## 输出文件
 
+脚本将所有 COE 文件直接写入仓库的 `doc/` 目录；CSV、响应曲线等 MATLAB 校验产物仍保存在 `matlab/` 目录。
+
 - `sweep_iq_complete.coe`：完整的四路数据，供一个 `4096 × 64-bit` BRAM 使用。
 - `sweep_iq_direct.coe`：直通通道 I/Q，供一个 `4096 × 32-bit` BRAM 使用。
 - `sweep_iq_filtered.coe`：滤波通道 I/Q，供一个 `4096 × 32-bit` BRAM 使用。
@@ -29,4 +31,4 @@ sweep_iq_direct.coe / sweep_iq_filtered.coe  (各 4096 × 32-bit)
 
 这里的 `direct` 即“直通”通道。频点索引 `i` 的频率为 `200 + 20 × i` Hz。PS 读取 `sweep_iq_complete.coe` 的第 `i` 个 64 位 word 后，即可直接取得同一频点的滤波 I/Q 与直通 I/Q 四个值。
 
-当前工程的 BRAM 为 `4096 × 32-bit`，因此不能直接加载完整 COE；实际加载前需将 BRAM 数据宽度改为 64 bit，或保留两个 32-bit BRAM 分别加载直通与滤波 COE。
+当前工程加载 `doc/sweep_iq_complete.coe`，BRAM 配置为 `4096 × 64-bit`，每个地址同时保存同一频点的滤波 I/Q 与直通 I/Q。

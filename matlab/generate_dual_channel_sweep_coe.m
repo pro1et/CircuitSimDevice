@@ -65,11 +65,15 @@ complete_words_raw = pack_complete_iq(filtered_i, filtered_q, direct_i, direct_q
 direct_words = pad_words(direct_words_raw, cfg.bram_depth_words);
 filtered_words = pad_words(filtered_words_raw, cfg.bram_depth_words);
 complete_words = pad_words(complete_words_raw, cfg.bram_depth_words);
-out_dir = fileparts(mfilename('fullpath'));
-write_coe(fullfile(out_dir, 'sweep_frequency_hz.coe'), frequency_words, 8);
-write_coe(fullfile(out_dir, 'sweep_iq_direct.coe'), direct_words, 8);
-write_coe(fullfile(out_dir, 'sweep_iq_filtered.coe'), filtered_words, 8);
-write_coe(fullfile(out_dir, 'sweep_iq_complete.coe'), complete_words, 16);
+script_dir = fileparts(mfilename('fullpath'));
+coe_dir = fullfile(script_dir, '..', 'doc');
+if ~isfolder(coe_dir)
+    mkdir(coe_dir);
+end
+write_coe(fullfile(coe_dir, 'sweep_frequency_hz.coe'), frequency_words, 8);
+write_coe(fullfile(coe_dir, 'sweep_iq_direct.coe'), direct_words, 8);
+write_coe(fullfile(coe_dir, 'sweep_iq_filtered.coe'), filtered_words, 8);
+write_coe(fullfile(coe_dir, 'sweep_iq_complete.coe'), complete_words, 16);
 
 direct_mag = hypot(double(direct_i), double(direct_q));
 filtered_mag = hypot(double(filtered_i), double(filtered_q));
@@ -77,14 +81,14 @@ metadata = table(cfg.frequency_hz, direct_i, direct_q, filtered_i, filtered_q, .
     direct_mag, filtered_mag, 'VariableNames', ...
     {'frequency_hz','direct_i_int16','direct_q_int16','filtered_i_int16', ...
      'filtered_q_int16','direct_iq_magnitude','filtered_iq_magnitude'});
-writetable(metadata, fullfile(out_dir, 'sweep_iq_metadata.csv'));
+writetable(metadata, fullfile(script_dir, 'sweep_iq_metadata.csv'));
 
 figure('Color', 'w');
 plot(cfg.frequency_hz, direct_mag, 'b', cfg.frequency_hz, filtered_mag, 'r', 'LineWidth', 1.1);
 grid on; xlabel('Frequency (Hz)'); ylabel('I/Q magnitude (ADC Q1.15 codes)');
 legend('Direct channel', 'Filtered channel', 'Location', 'northeast');
 title('Dual physical-channel FPGA DDC model');
-exportgraphics(gcf, fullfile(out_dir, 'dual_channel_iq_response.png'), 'Resolution', 150);
+exportgraphics(gcf, fullfile(script_dir, 'dual_channel_iq_response.png'), 'Resolution', 150);
 
 fprintf('Generated %d I/Q points; all COEs are padded to %d words.\n', ...
     count, cfg.bram_depth_words);
