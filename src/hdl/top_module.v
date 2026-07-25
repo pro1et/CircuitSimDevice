@@ -20,14 +20,38 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 
-module top_module (
+// Add this module to the Vivado Block Design as a Module Reference:
+//   clk            <- processing_system7_0/FCLK_CLK0 (100 MHz)
+//   resetn         <- proc_sys_reset/peripheral_aresetn
+//   button         <- Mizar Z7 PL_KEY1 (active low)
+//   button_pressed -> AXI GPIO input, for PS polling or GPIO interrupt
+//
+// The BRAM is deliberately not instantiated here. Its Port A is owned by
+// axi_bram_ctrl_0 inside the Block Design; add the BMG to that same design.
+module top_module #(
+    parameter integer CLOCK_HZ    = 100_000_000,
+    parameter integer DEBOUNCE_MS = 20
+) (
+    input  wire clk,
+    input  wire resetn,
     input  wire button,
-    output wire led
+    output wire led,
+    output wire button_pressed,
+    output wire button_event
 );
 
-    // Both the Mizar Z7 PL button and PL LED are active-low.
-    // Released button: button = 1 -> led = 1 -> LED off.
-    // Pressed button:  button = 0 -> led = 0 -> LED on.
-    assign led = button;
+    button_debounce #(
+        .CLOCK_HZ(CLOCK_HZ),
+        .DEBOUNCE_MS(DEBOUNCE_MS)
+    ) u_button_debounce (
+        .clk            (clk),
+        .resetn         (resetn),
+        .button_n_async (button),
+        .pressed        (button_pressed),
+        .press_event    (button_event)
+    );
+
+    // Mizar Z7's PL LED is active low: illuminate after a confirmed press.
+    assign led = ~button_pressed;
 
 endmodule
