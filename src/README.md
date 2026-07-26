@@ -1,14 +1,35 @@
 # PL source interface
 
-`hdl/LED.v` and `hdl/button_debounce.v` form the physical PL-button front end. Add `LED` to the Vivado Block Design with **Add Module** / **Add Module Reference**; do not set it as the standalone project top.
+The Vivado Block Design is repository-managed by `scripts/ps_pl_bram.tcl` and
+contains only the Zynq PS, AXI infrastructure, two AXI BRAM controllers, two
+true dual-port BRAMs, and reset logic. DDS, acquisition control, and FIR logic
+must remain ordinary RTL outside the BD.
 
-| `LED` port | Block Design connection |
+The BD exports two native BRAM Port B interfaces:
+
+| Interface | Owner | Direction |
+| --- | --- | --- |
+| `MEAS_BRAM_PL` | Application measurement RTL | PL writes, PS reads |
+| `COEFF_BRAM_PL` | Application FIR/configuration RTL | PS writes, PL reads |
+
+Both exported interfaces use the BMG's 32-bit **byte address** convention so
+they match AXI BRAM Controller addressing. The SystemVerilog package expresses
+header positions as word indices; application RTL must shift a word index left
+by two bits when driving `*_BRAM_PL_addr`.
+
+Protocol sources:
+
+| File | Purpose |
 | --- | --- |
-| `clk` | `processing_system7_0/FCLK_CLK0` (100 MHz) |
-| `resetn` | `rst_ps7_0_100M/peripheral_aresetn` |
-| `button` | Make External; constrained to Mizar Z7 `PL_KEY1` by `constrs/button_led.xdc` |
-| `led` | Make External; constrained to `PL_LED1` |
-| `button_pressed` | `axi_gpio_0/gpio_io_i`; use for PS polling or interrupt |
-| `button_event` | Optional debug signal; one 100 MHz cycle per confirmed press |
+| `hdl/shared_bram_protocol_pkg.sv` | Shared PL constants and word addresses |
 
-The initialized `blk_mem_gen_0` is added separately as a Block Design IP. Its 32-bit byte-addressed `BRAM_PORTA` connects to `axi_bram_ctrl_0/BRAM_PORTA`, letting PS software read 8192 words without a GP0 width conversion. The AXI BRAM controller read latency is 1 and the Block Memory primitive output registers are disabled, so an AXI response contains the word selected by the current request rather than the preceding request. The first six words contain sweep metadata; after that header, two adjacent words form one 64-bit IQ point. `BRAM_PORTB` is reserved for future PL data-producer logic.
+All status fields use zero as `BUSY`. A cleared BRAM, an asserted reset, or an
+uninitialized PS therefore cannot be interpreted as a valid transaction.
+Consumers must additionally validate `MAGIC`, `VERSION`, payload bounds,
+format, and a stable `GENERATION` before accepting data.
+
+The infrastructure wrapper only exports the native BRAM signals. Application
+RTL decides when and how to read or write them. No generic BRAM writer or
+loader FSM is included, and application modules must not be added to the BD as
+module references. See `doc/PS端共享BRAM访问与STATUS通知协议.md` for the PS access
+and polling procedure.

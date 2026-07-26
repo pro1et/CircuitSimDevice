@@ -1,8 +1,11 @@
 #include "sweep_iq.h"
 
-#include "xil_io.h"
-#include "xparameters.h"
 #include "xstatus.h"
+
+#include <stddef.h>
+
+#define SWEEP_IQ_MAX_PAYLOAD_WORDS \
+    ((SHARED_BRAM_MEAS_SIZE_BYTES - SHARED_BRAM_PAYLOAD_OFFSET) / 4U)
 
 static sweep_iq_config_t active_config = {
     SWEEP_IQ_DEFAULT_POINT_COUNT,
@@ -11,55 +14,50 @@ static sweep_iq_config_t active_config = {
     SWEEP_IQ_DEFAULT_ADC_SAMPLE_RATE_HZ
 };
 
-static sweep_iq_header_t last_header;
+/* A private snapshot prevents PL updates from changing data during FIR fit. */
+static u32 measurement_snapshot[SWEEP_IQ_MAX_PAYLOAD_WORDS];
+static shared_bram_measurement_info_t measurement_info;
 
 u32 sweep_iq_get_capacity_points(void)
 {
-    UINTPTR byte_count = (UINTPTR)XPAR_AXI_BRAM_CTRL_0_HIGHADDR
-                       - (UINTPTR)XPAR_AXI_BRAM_CTRL_0_BASEADDR + 1U;
-    if (byte_count <= SWEEP_IQ_HEADER_BYTES) {
-        return 0U;
-    }
-    return (u32)((byte_count - SWEEP_IQ_HEADER_BYTES)
-                 / SWEEP_IQ_BYTES_PER_POINT);
+    return SWEEP_IQ_MAX_PAYLOAD_WORDS
+         / SHARED_BRAM_MEAS_WORDS_PER_IQ_POINT;
 }
 
-int sweep_iq_load_config_from_bram(void)
+shared_bram_result_t sweep_iq_poll_snapshot(void)
 {
-    UINTPTR base = (UINTPTR)XPAR_AXI_BRAM_CTRL_0_BASEADDR;
     sweep_iq_config_t config;
+    shared_bram_result_t result = shared_bram_read_measurement(
+        (UINTPTR)SHARED_BRAM_MEAS_BASE_ADDRESS,
+        SHARED_BRAM_MEAS_SIZE_BYTES,
+        measurement_snapshot,
+        SWEEP_IQ_MAX_PAYLOAD_WORDS,
+        &measurement_info);
 
-    last_header.magic =
-        Xil_In32(base + SWEEP_IQ_HEADER_MAGIC_OFFSET);
-    last_header.status =
-        Xil_In32(base + SWEEP_IQ_HEADER_STATUS_OFFSET);
-    last_header.point_count =
-        Xil_In32(base + SWEEP_IQ_HEADER_POINT_COUNT_OFFSET);
-    last_header.first_frequency_hz =
-        Xil_In32(base + SWEEP_IQ_HEADER_FIRST_FREQ_OFFSET);
-    last_header.frequency_step_hz =
-        Xil_In32(base + SWEEP_IQ_HEADER_FREQ_STEP_OFFSET);
-    last_header.adc_sample_rate_hz =
-        Xil_In32(base + SWEEP_IQ_HEADER_ADC_FS_OFFSET);
-
-    if (last_header.magic != SWEEP_IQ_HEADER_MAGIC) {
-        return XST_FAILURE;
+    if (result != SHARED_BRAM_OK) {
+        return result;
     }
-    if ((last_header.status & SWEEP_IQ_STATUS_DONE_MASK) == 0U) {
-        return XST_DEVICE_BUSY;
+    if ((measurement_info.word_count == 0U)
+        || ((measurement_info.word_count
+             % SHARED_BRAM_MEAS_WORDS_PER_IQ_POINT) != 0U)) {
+        return SHARED_BRAM_BAD_LENGTH;
     }
 
-    config.point_count = last_header.point_count;
-    config.first_frequency_hz = last_header.first_frequency_hz;
-    config.frequency_step_hz = last_header.frequency_step_hz;
-    config.adc_sample_rate_hz = last_header.adc_sample_rate_hz;
+    config.point_count = measurement_info.word_count
+                       / SHARED_BRAM_MEAS_WORDS_PER_IQ_POINT;
+    config.first_frequency_hz = SWEEP_IQ_DEFAULT_FIRST_FREQ_HZ;
+    config.frequency_step_hz = SWEEP_IQ_DEFAULT_FREQ_STEP_HZ;
+    config.adc_sample_rate_hz = SWEEP_IQ_DEFAULT_ADC_SAMPLE_RATE_HZ;
 
-    return sweep_iq_configure(&config);
+    if (sweep_iq_configure(&config) != XST_SUCCESS) {
+        return SHARED_BRAM_BAD_LENGTH;
+    }
+    return SHARED_BRAM_OK;
 }
 
-const sweep_iq_header_t *sweep_iq_get_last_header(void)
+const shared_bram_measurement_info_t *sweep_iq_get_measurement_info(void)
 {
-    return &last_header;
+    return &measurement_info;
 }
 
 int sweep_iq_configure(const sweep_iq_config_t *config)
@@ -92,34 +90,27 @@ const sweep_iq_config_t *sweep_iq_get_config(void)
 
 int sweep_iq_read_point(u32 index, sweep_iq_point_t *point)
 {
-    UINTPTR address;
-    u32 low;
-    u32 high;
+    u32 direct;
+    u32 filtered;
+    u32 word_index;
 
     if ((point == NULL) || (index >= active_config.point_count)) {
         return XST_INVALID_PARAM;
     }
 
-    address = (UINTPTR)XPAR_AXI_BRAM_CTRL_0_BASEADDR
-            + SWEEP_IQ_HEADER_BYTES
-            + ((UINTPTR)index * SWEEP_IQ_BYTES_PER_POINT);
-
-    /*
-     * Port A and the AXI BRAM controller are 32 bits wide. Each logical IQ
-     * point occupies two adjacent words: direct first, then filtered.
-     */
-    low = Xil_In32(address);
-    high = Xil_In32(address + 4U);
+    word_index = index * SHARED_BRAM_MEAS_WORDS_PER_IQ_POINT;
+    direct = measurement_snapshot[word_index];
+    filtered = measurement_snapshot[word_index + 1U];
 
     point->index = index;
     point->frequency_hz = active_config.first_frequency_hz
                         + (active_config.frequency_step_hz * index);
-    point->raw_low = low;
-    point->raw_high = high;
-    point->q_direct = (s16)(low & 0xFFFFU);
-    point->i_direct = (s16)((low >> 16) & 0xFFFFU);
-    point->q_filtered = (s16)(high & 0xFFFFU);
-    point->i_filtered = (s16)((high >> 16) & 0xFFFFU);
+    point->raw_direct = direct;
+    point->raw_filtered = filtered;
+    point->q_direct = (s16)(direct & 0xFFFFU);
+    point->i_direct = (s16)((direct >> 16) & 0xFFFFU);
+    point->q_filtered = (s16)(filtered & 0xFFFFU);
+    point->i_filtered = (s16)((filtered >> 16) & 0xFFFFU);
 
     return XST_SUCCESS;
 }

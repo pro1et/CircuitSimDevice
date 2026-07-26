@@ -23,14 +23,8 @@
 # 2. The following source(s) files that were local or imported into the original project.
 #    (Please see the '$orig_proj_dir' and '$origin_dir' variable setting below at the start of the script)
 #
-#    "../src/hdl/button_debounce.v"
-#    "../src/hdl/LED.v"
-#    "../src/constrs/button_led.xdc"
-#    "system.tcl"
-#
-# 3. The following remote source files that were added to the original project:-
-#
-#    "../doc/sweep_iq_complete_32.coe"
+#    "../src/hdl/shared_bram_protocol_pkg.sv"
+#    "ps_pl_bram.tcl"
 #
 #*****************************************************************************************
 
@@ -38,11 +32,8 @@
 proc checkRequiredFiles { origin_dir} {
   set status true
   set files [list \
- "[file normalize "$origin_dir/../src/hdl/button_debounce.v"]"\
- "[file normalize "$origin_dir/../src/hdl/LED.v"]"\
- "[file normalize "$origin_dir/../src/constrs/button_led.xdc"]"\
- "[file normalize "$origin_dir/system.tcl"]"\
- "[file normalize "$origin_dir/../doc/sweep_iq_complete_32.coe"]"\
+ "[file normalize "$origin_dir/../src/hdl/shared_bram_protocol_pkg.sv"]"\
+ "[file normalize "$origin_dir/ps_pl_bram.tcl"]"\
   ]
   foreach ifile $files {
     if { ![file isfile $ifile] } {
@@ -116,9 +107,11 @@ if { $::argc > 0 } {
   }
 }
 
-# Resolve the repository root and keep all generated project files under work/.
+# Resolve the repository root and keep each generated project in its own
+# subdirectory under work/. This avoids collisions with stale runs or another
+# Vivado instance that has a different generated project open.
 set project_root_dir [file normalize "$origin_dir/.."]
-set orig_proj_dir [file normalize "$project_root_dir/work"]
+set orig_proj_dir [file normalize "$project_root_dir/work/${_xil_proj_name_}"]
 
 # Check for paths and files needed for project creation
 set validate_required 1
@@ -132,7 +125,7 @@ if { $validate_required } {
 }
 
 # Create project
-create_project ${_xil_proj_name_} [file normalize "$project_root_dir/work"] -part xc7z020clg400-2
+create_project ${_xil_proj_name_} $orig_proj_dir -part xc7z020clg400-2 -force
 
 # Set the directory path for the new project
 set proj_dir [get_property directory [current_project]]
@@ -175,43 +168,25 @@ if {[string equal [get_filesets -quiet sources_1] ""]} {
   create_fileset -srcset sources_1
 }
 
-# Set 'sources_1' fileset object
+# Add protocol constants. Business RTL directly controls exported BRAM ports.
 set obj [get_filesets sources_1]
 set files [list \
- [file normalize "$project_root_dir/doc/sweep_iq_complete_32.coe"] \
+ [file normalize "$project_root_dir/src/hdl/shared_bram_protocol_pkg.sv"] \
 ]
 add_files -norecurse -fileset $obj $files
-
-# Import repository-managed RTL files before creating the module-reference BD.
-set files [list \
- [file normalize "$project_root_dir/src/hdl/button_debounce.v"]\
- [file normalize "$project_root_dir/src/hdl/LED.v"]\
-]
-set imported_files [import_files -fileset sources_1 $files]
 update_compile_order -fileset sources_1
 
 # Recreate the Block Design from its repository-managed Tcl description.
-set bd_script [file normalize "$origin_dir/system.tcl"]
+set bd_script [file normalize "$origin_dir/ps_pl_bram.tcl"]
 set bd_result [source $bd_script]
-if { [lsearch -exact [list 1 2 3] $bd_result] >= 0 } {
+if { $bd_result != 0 } {
   error "Block Design reconstruction failed with status $bd_result"
 }
 
-# system.tcl disables synthesis-cache reuse for the initialized BRAM XCI.
-# Assert that the generated IP file is present so COE changes cannot silently
-# fall back to an unrelated or stale Block Memory Generator output product.
-set bram_ip_xci [get_files -quiet -all *system_blk_mem_gen_0_0.xci]
-if { [llength $bram_ip_xci] != 1 } {
-  error "Expected exactly one generated XCI for system_blk_mem_gen_0_0"
-}
-if { ![config_ip_cache -is_ip_disabled $bram_ip_xci] } {
-  config_ip_cache -disable_for_ip $bram_ip_xci
-}
-
 # Generate and add the HDL wrapper for the recreated Block Design.
-set bd_file [get_files -quiet -norecurse system.bd]
+set bd_file [get_files -quiet -norecurse ps_pl_bram.bd]
 if { [llength $bd_file] != 1 } {
-  error "Expected exactly one recreated Block Design named system.bd"
+  error "Expected exactly one recreated Block Design named ps_pl_bram.bd"
 }
 set wrapper_path [make_wrapper -fileset sources_1 -files $bd_file -top]
 add_files -norecurse -fileset sources_1 $wrapper_path
@@ -227,7 +202,7 @@ set_property -name "registered_with_manager" -value "1" -objects $file_obj
 
 # Set 'sources_1' fileset properties
 set obj [get_filesets sources_1]
-set_property -name "top" -value "system_wrapper" -objects $obj
+set_property -name "top" -value "ps_pl_bram_wrapper" -objects $obj
 set_property -name "top_auto_set" -value "0" -objects $obj
 
 # Create 'constrs_1' fileset (if not found)
@@ -238,15 +213,7 @@ if {[string equal [get_filesets -quiet constrs_1] ""]} {
 # Set 'constrs_1' fileset object
 set obj [get_filesets constrs_1]
 
-# Add/Import constrs file and set constrs file properties
-set file [file normalize "$project_root_dir/src/constrs/button_led.xdc"]
-set file_imported [import_files -fileset constrs_1 [list $file]]
-set file_obj [get_files -of_objects [get_filesets constrs_1] [list "*button_led.xdc"]]
-if { [llength $file_obj] != 1 } {
-  error "Expected exactly one imported constraint file named button_led.xdc"
-}
-set_property -name "file_type" -value "XDC" -objects $file_obj
-set_property -name "target_constrs_file" -value $file_obj -objects [get_filesets constrs_1]
+# No PL pin constraints belong to the PS/BRAM infrastructure design.
 
 # Set 'constrs_1' fileset properties
 set obj [get_filesets constrs_1]
@@ -257,13 +224,8 @@ if {[string equal [get_filesets -quiet sim_1] ""]} {
   create_fileset -simset sim_1
 }
 
-# Set 'sim_1' fileset object
-set obj [get_filesets sim_1]
-# Empty (no sources present)
-
 # Set 'sim_1' fileset properties
 set obj [get_filesets sim_1]
-set_property -name "top" -value "system_wrapper" -objects $obj
 set_property -name "top_lib" -value "xil_defaultlib" -objects $obj
 
 # Set 'utils_1' fileset object

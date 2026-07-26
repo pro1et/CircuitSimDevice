@@ -1,5 +1,7 @@
 # CircuitSimDevice 当前现状报告
 
+> **历史文档：** 本报告描述的是已废弃的 `system`/LED/按键架构。当前 PS–PL 双 BRAM 架构及迁移状态以 `PS_PL共享BRAM_Block_Design重构计划.md` 为准。
+
 更新日期：2026-07-25  
 工程目录：`E:/FPGA_PJ/Prepare/CircuitSimDevice`
 

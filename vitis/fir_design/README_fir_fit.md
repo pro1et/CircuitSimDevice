@@ -1,73 +1,107 @@
-# PS 端浮点 FIR 拟合
+# PS 端 IQ → FIR →共享 BRAM 完整流程
 
-该功能根据 BRAM 中同一频点的直通与滤波 I/Q 计算复频率响应：
+该 Vitis 应用持续轮询测量 BRAM，复制一代稳定 IQ 快照，拟合实系数 FIR，量化为 Q1.31，再发布到系数 BRAM。运行过程不依赖按钮和中断。
+
+## 测量 payload 格式
+
+测量头部使用 `vitis/common/shared_bram_protocol.h` 定义的 64-byte 协议头。`FORMAT=SHARED_BRAM_MEAS_FORMAT_IQ_INT16_X4` 时，每个扫频点占两个 32-bit word：
 
 ```text
-X = I_direct + j*Q_direct
-Y = I_filtered + j*Q_filtered
+word[2*n+0] = {I_direct[15:0],   Q_direct[15:0]}
+word[2*n+1] = {I_filtered[15:0], Q_filtered[15:0]}
+```
+
+因此 `WORD_COUNT` 必须是大于零的偶数，扫频点数为 `WORD_COUNT/2`。当前协议头没有保存扫频起点、步长和 ADC 采样率，PS 暂时使用 `sweep_iq.h` 中的固定配置：
+
+```text
+first_frequency_hz = 200
+frequency_step_hz  = 20
+adc_sample_rate_hz = 300000
+```
+
+PL 提交测量时必须依次写 `BUSY → header/payload → GENERATION → DONE`。
+
+## FIR 生成
+
+每个有效扫频点计算：
+
+```text
+X = I_direct + jQ_direct
+Y = I_filtered + jQ_filtered
 H = Y / X
 ```
 
-随后以当前扫频配置中的全部 H 样本拟合一个一般实系数 FIR。129 个 tap 全部独立，不强制对称，因此可以逼近模拟滤波器的非线性相位。当前默认数据为 2991 点，但拟合循环不依赖该固定数量。默认参数为：
+零幅值 `X` 无法计算传递函数，将被跳过。其余复频响样本用于岭正则化最小二乘，拟合 129-tap 一般实系数 FIR：
 
 ```text
-adc_sample_rate_hz = 300000
-tap_count      = 129
-ridge_factor   = 1e-6
+H(w) = sum(h[n] * exp(-j*w*n))
+ridge_factor = 1e-6
 ```
 
-这里的采样率是 ADC 采样率，即 FIR 将来实际处理输入样本的速率，不是 DAC 激励发生器的采样率。
+浮点系数乘以 `2^31` 并四舍五入为 signed Q1.31；超出 Q1.31 范围的值会饱和，并通过 UART 的 `saturated` 计数报告。
 
-扫频读取层使用 `sweep_iq_config_t` 保存运行时参数：
+## 系数发布
 
-```c
-sweep_iq_config_t sweep = {
-    .point_count = point_count,
-    .first_frequency_hz = first_frequency_hz,
-    .frequency_step_hz = frequency_step_hz,
-    .adc_sample_rate_hz = adc_sample_rate_hz
-};
-sweep_iq_configure(&sweep);
-```
-
-BRAM 读取、频率计算、串口抽样和 FIR 拟合都通过 `sweep_iq_get_config()` 获取这些值。配置函数会检查 BRAM 容量、频率计算溢出和 Nyquist 范围。
-
-`fir_fit.c` 以 `exp(-j*omega*n)` 为基函数，将每个复数频响样本的实部和虚部共同累计到 129 未知量的实数正规方程中，再使用岭正则与部分主元高斯消元求解 129 个独立 `float` 系数。拟合工作区静态分配，不使用裸机堆内存，也不会在栈上放置完整矩阵。
-
-## 板上运行
-
-在 Vitis 中下载当前 ELF 和匹配的 bitstream，将 USB 线切换到 UART 并打开串口，然后按 K3。完成 IQ 拆包检查与 H(jw) 输出后，程序执行 FIR 拟合并输出：
+发布成功时，`shared_bram_publish_coefficients_q31()` 按以下顺序写系数 BRAM：
 
 ```text
-Floating FIR fit from measured H(jw)
-FIR_FIT_RESULT,points=...,nrmse_ppm=...,phase_rmse_mdeg=...,cutoff_hz=...
-tap_index,coefficient_float
-0,...
-...
-128,...
-FIR_COEFFICIENTS_END,taps=129
+STATUS = BUSY
+MAGIC / VERSION / TAP_COUNT / FORMAT / SCALE
+129 个 Q1.31 payload
+dmb sy
+GENERATION = old + 1
+dmb sy
+STATUS = VALID
 ```
 
-`nrmse_ppm / 1e6` 是复频率响应归一化均方根误差。相位误差只统计 `|H| >= 0.01` 的频点，避免深阻带量化噪声导致无意义的相位跳变。
+`VALID` 是最后一次写入，因此 PL 看到 VALID 时才可以读取新一代系数。拟合失败时，PS 发布 `STATUS=ERROR`；此时 `ARG1` 解释为错误码，而不是 SCALE。
 
-## 主机测试
+| ERROR_CODE | 含义 |
+| ---: | --- |
+| `0x101` | FIR 拟合初始化失败 |
+| `0x102` | IQ 快照读取失败 |
+| `0x103` | 有效频响点少于 tap 数 |
+| `0x104` | FIR 方程构建或求解失败 |
+| `0x105` | 浮点系数量化失败 |
 
-工程使用同一个 `fir_fit.c` 进行主机测试，不复制算法实现。在仓库根目录执行：
+PL 应把系数复制到自己的 shadow bank，复查 `GENERATION/STATUS` 后再在安全边界切换 active bank。
 
-```powershell
-New-Item -ItemType Directory -Force work\host_tests | Out-Null
-gcc -std=c11 -O2 -Wall -Wextra -Werror `
-    -Ivitis/fir_design/src `
-    vitis/fir_design/tests/fir_fit_host_test.c `
-    vitis/fir_design/src/fir_fit.c -lm `
-    -o work/host_tests/fir_fit_host_test.exe
-work/host_tests/fir_fit_host_test.exe matlab/sweep_iq_metadata.csv
+## 主循环
+
+`main.c` 的自动流程为：
+
+```text
+启动：系数 STATUS=BUSY
+    ↓
+轮询测量 STATUS
+    ↓ DONE 且 generation 稳定
+复制 payload 到 PS DDR 快照
+    ↓
+跳过已经处理过的 generation
+    ↓
+计算 H(jw) 并拟合 FIR
+    ↓
+量化为 Q1.31
+    ↓
+发布系数并最后写 VALID
+    ↓
+等待下一代测量
 ```
 
-当前参考 CSV 测试验收条件为：2991 个输入点、复数 NRMSE 小于 0.5%、截止频率位于 19.0–19.5 kHz 且系数有限。此外还使用两组刻意不对称的合成 FIR 响应验证一般实系数求解和动态扫频参数：401 点/300 Hz 步长，以及 173 点/700 Hz 步长。
+关键 UART 输出：
 
-当前 32-bit BRAM 数据已经包含 6-word 元数据头：MAGIC、STATUS、有效点数、起始频率、频率步长和 ADC 采样率。PS 在每次按键处理前调用 `sweep_iq_load_config_from_bram()`；只有 MAGIC 正确且 STATUS.DONE 为 1 时才读取 IQ。IQ 数据起始地址相对 BRAM 基地址顺延 24 bytes。不能从阻带中的零 IQ 数据可靠推断有效点数。
+```text
+MEASUREMENT_READY,generation=...,words=...,points=...
+COEFFICIENT_VALID,measurement_generation=...,coefficient_generation=...,taps=129,fit_points=...,saturated=...
+```
 
-## 当前边界
+## 平台要求
 
-本阶段仅生成浮点 FIR 系数并验证其频率响应，不包含系数量化、溢出分析、PL FIR 实现、系数写入或运行时硬件接口。
+应用使用以下固定映射：
+
+```text
+测量 BRAM：0x40000000，32 KiB
+系数 BRAM：0x40010000，4 KiB
+```
+
+仓库中的旧 Vitis platform/XSA 仍来自重构前硬件。上板运行前必须从新 `ps_pl_bram` 设计导出 XSA，并重新生成 platform/BSP；否则旧硬件只包含一块 BRAM，访问 `0x40010000` 不会得到预期结果。
