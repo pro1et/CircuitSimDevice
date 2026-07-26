@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 #define TEST_TAPS       129U
-#define TEST_SAMPLE_RATE_HZ  250000.0
+#define TEST_SAMPLE_RATE_HZ  300000.0
 
 static int run_variable_sweep_test(unsigned int point_count,
                                    double first_frequency_hz,
@@ -18,31 +18,15 @@ static int run_variable_sweep_test(unsigned int point_count,
     fir_fit_config_t config = {
         TEST_SAMPLE_RATE_HZ, SYNTHETIC_TAPS, 1e-10
     };
-    double coefficient_sum = 0.0;
     double measured_energy = 0.0;
     double residual_energy = 0.0;
-    unsigned int center = (SYNTHETIC_TAPS - 1U) / 2U;
     unsigned int index;
     int status;
 
+    /* Deliberately asymmetric impulse response verifies the general model. */
     for (index = 0U; index < SYNTHETIC_TAPS; ++index) {
-        double distance = (double)((int)index - (int)center);
-        double coefficient;
-        if (distance == 0.0) {
-            coefficient = 0.24;
-        } else {
-            coefficient = sin(0.24 * 3.14159265358979323846 * distance)
-                        / (3.14159265358979323846 * distance);
-        }
-        coefficient *= 0.54 - 0.46 * cos(2.0 * 3.14159265358979323846
-                                         * (double)index
-                                         / (SYNTHETIC_TAPS - 1U));
-        reference[index] = (float)coefficient;
-        coefficient_sum += coefficient;
-    }
-    for (index = 0U; index < SYNTHETIC_TAPS; ++index) {
-        reference[index] = (float)((double)reference[index]
-                                   / coefficient_sum);
+        reference[index] = (float)(pow(0.82, (double)index)
+                         * (0.13 + 0.04 * sin(0.71 * (double)index)));
     }
 
     status = fir_fit_initialize(&workspace, &config);
@@ -231,26 +215,14 @@ int main(int argc, char **argv)
 
     {
         double nrmse = sqrt(residual_energy / measured_energy);
-        double maximum_asymmetry = 0.0;
-        unsigned int tap;
-        for (tap = 0U; tap < TEST_TAPS; ++tap) {
-            double asymmetry = fabs((double)coefficients[tap]
-                                    - coefficients[TEST_TAPS - 1U - tap]);
-            if (asymmetry > maximum_asymmetry) {
-                maximum_asymmetry = asymmetry;
-            }
-        }
-
         printf("samples=%u\n", sample_count);
         printf("nrmse=%.9f\n", nrmse);
         printf("cutoff_hz=%.0f\n", cutoff_hz);
         printf("dc_gain=%.9f\n", hypot(dc_real, dc_imag));
         printf("center_coefficient=%.9f\n", coefficients[TEST_TAPS / 2U]);
-        printf("maximum_asymmetry=%.9g\n", maximum_asymmetry);
 
         if (sample_count != 2991U || nrmse >= 0.005
             || cutoff_hz < 19000.0 || cutoff_hz > 19500.0
-            || maximum_asymmetry != 0.0
             || !isfinite(coefficients[TEST_TAPS / 2U])) {
             fprintf(stderr, "FIR fit acceptance test failed\n");
             return 1;

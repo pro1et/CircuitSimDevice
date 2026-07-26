@@ -11,11 +11,55 @@ static sweep_iq_config_t active_config = {
     SWEEP_IQ_DEFAULT_ADC_SAMPLE_RATE_HZ
 };
 
+static sweep_iq_header_t last_header;
+
 u32 sweep_iq_get_capacity_points(void)
 {
     UINTPTR byte_count = (UINTPTR)XPAR_AXI_BRAM_CTRL_0_HIGHADDR
                        - (UINTPTR)XPAR_AXI_BRAM_CTRL_0_BASEADDR + 1U;
-    return (u32)(byte_count / SWEEP_IQ_BYTES_PER_POINT);
+    if (byte_count <= SWEEP_IQ_HEADER_BYTES) {
+        return 0U;
+    }
+    return (u32)((byte_count - SWEEP_IQ_HEADER_BYTES)
+                 / SWEEP_IQ_BYTES_PER_POINT);
+}
+
+int sweep_iq_load_config_from_bram(void)
+{
+    UINTPTR base = (UINTPTR)XPAR_AXI_BRAM_CTRL_0_BASEADDR;
+    sweep_iq_config_t config;
+
+    last_header.magic =
+        Xil_In32(base + SWEEP_IQ_HEADER_MAGIC_OFFSET);
+    last_header.status =
+        Xil_In32(base + SWEEP_IQ_HEADER_STATUS_OFFSET);
+    last_header.point_count =
+        Xil_In32(base + SWEEP_IQ_HEADER_POINT_COUNT_OFFSET);
+    last_header.first_frequency_hz =
+        Xil_In32(base + SWEEP_IQ_HEADER_FIRST_FREQ_OFFSET);
+    last_header.frequency_step_hz =
+        Xil_In32(base + SWEEP_IQ_HEADER_FREQ_STEP_OFFSET);
+    last_header.adc_sample_rate_hz =
+        Xil_In32(base + SWEEP_IQ_HEADER_ADC_FS_OFFSET);
+
+    if (last_header.magic != SWEEP_IQ_HEADER_MAGIC) {
+        return XST_FAILURE;
+    }
+    if ((last_header.status & SWEEP_IQ_STATUS_DONE_MASK) == 0U) {
+        return XST_DEVICE_BUSY;
+    }
+
+    config.point_count = last_header.point_count;
+    config.first_frequency_hz = last_header.first_frequency_hz;
+    config.frequency_step_hz = last_header.frequency_step_hz;
+    config.adc_sample_rate_hz = last_header.adc_sample_rate_hz;
+
+    return sweep_iq_configure(&config);
+}
+
+const sweep_iq_header_t *sweep_iq_get_last_header(void)
+{
+    return &last_header;
 }
 
 int sweep_iq_configure(const sweep_iq_config_t *config)
@@ -57,6 +101,7 @@ int sweep_iq_read_point(u32 index, sweep_iq_point_t *point)
     }
 
     address = (UINTPTR)XPAR_AXI_BRAM_CTRL_0_BASEADDR
+            + SWEEP_IQ_HEADER_BYTES
             + ((UINTPTR)index * SWEEP_IQ_BYTES_PER_POINT);
 
     /*

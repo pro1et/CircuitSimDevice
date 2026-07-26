@@ -10,9 +10,8 @@ static int config_is_valid(const fir_fit_config_t *config)
 {
     return (config != NULL)
         && (config->sample_rate_hz > 0.0)
-        && (config->tap_count >= 3U)
+        && (config->tap_count >= 1U)
         && (config->tap_count <= FIR_FIT_MAX_TAPS)
-        && ((config->tap_count & 1U) != 0U)
         && (config->ridge_factor >= 0.0);
 }
 
@@ -25,7 +24,7 @@ int fir_fit_initialize(fir_fit_workspace_t *workspace,
 
     memset(workspace, 0, sizeof(*workspace));
     workspace->config = *config;
-    workspace->unique_coefficient_count = (config->tap_count + 1U) / 2U;
+    workspace->coefficient_count = config->tap_count;
     return FIR_FIT_SUCCESS;
 }
 
@@ -34,12 +33,12 @@ int fir_fit_add_sample(fir_fit_workspace_t *workspace,
                        double response_real,
                        double response_imag)
 {
-    double basis[FIR_FIT_MAX_UNIQUE_COEFFS];
+    double basis_real[FIR_FIT_MAX_TAPS];
+    double basis_imag[FIR_FIT_MAX_TAPS];
     double omega;
-    double center_phase;
-    double rotated_response_real;
-    unsigned int center;
-    unsigned int unique_count;
+    double cosine;
+    double sine;
+    unsigned int coefficient_count;
     unsigned int row;
     unsigned int column;
 
@@ -50,31 +49,37 @@ int fir_fit_add_sample(fir_fit_workspace_t *workspace,
         return FIR_FIT_INVALID_ARGUMENT;
     }
 
-    center = (workspace->config.tap_count - 1U) / 2U;
-    unique_count = workspace->unique_coefficient_count;
+    coefficient_count = workspace->coefficient_count;
     omega = FIR_FIT_TWO_PI * frequency_hz
           / workspace->config.sample_rate_hz;
-    center_phase = omega * (double)center;
 
     /*
-     * For a real symmetric FIR:
-     * H(w) = exp(-j*w*M) * (h[M] + 2*sum(h[M-k]*cos(w*k))).
-     * The bracketed expression is real, reducing 129 unknown taps to 65.
+     * General real-coefficient FIR:
+     * H(w) = sum(h[n] * exp(-j*w*n)).  Stack the real and imaginary
+     * equations implicitly.  Each measured complex response contributes
+     * A_real^T*A_real + A_imag^T*A_imag to the real normal matrix.
      */
-    basis[0] = 1.0;
-    for (column = 1U; column < unique_count; ++column) {
-        basis[column] = 2.0 * cos(omega * (double)column);
+    cosine = cos(omega);
+    sine = sin(omega);
+    basis_real[0] = 1.0;
+    basis_imag[0] = 0.0;
+    for (column = 1U; column < coefficient_count; ++column) {
+        double previous_real = basis_real[column - 1U];
+        double previous_imag = basis_imag[column - 1U];
+        basis_real[column] = previous_real * cosine
+                           + previous_imag * sine;
+        basis_imag[column] = previous_imag * cosine
+                           - previous_real * sine;
     }
 
-    rotated_response_real = cos(center_phase) * response_real
-                          - sin(center_phase) * response_imag;
-
-    for (row = 0U; row < unique_count; ++row) {
+    for (row = 0U; row < coefficient_count; ++row) {
         workspace->right_hand_side[row] +=
-            basis[row] * rotated_response_real;
+            basis_real[row] * response_real
+          + basis_imag[row] * response_imag;
         for (column = 0U; column <= row; ++column) {
             workspace->normal_matrix[row][column] +=
-                basis[row] * basis[column];
+                basis_real[row] * basis_real[column]
+              + basis_imag[row] * basis_imag[column];
         }
     }
 
@@ -85,7 +90,7 @@ int fir_fit_add_sample(fir_fit_workspace_t *workspace,
 static int solve_normal_equations(fir_fit_workspace_t *workspace,
                                   double *solution)
 {
-    unsigned int count = workspace->unique_coefficient_count;
+    unsigned int count = workspace->coefficient_count;
     unsigned int row;
     unsigned int column;
     unsigned int pivot_column;
@@ -167,9 +172,8 @@ int fir_fit_solve(fir_fit_workspace_t *workspace,
                   float *coefficients,
                   size_t coefficient_capacity)
 {
-    double solution[FIR_FIT_MAX_UNIQUE_COEFFS] = {0.0};
-    unsigned int center;
-    unsigned int offset;
+    double solution[FIR_FIT_MAX_TAPS] = {0.0};
+    unsigned int tap;
     int status;
 
     if ((workspace == NULL) || (coefficients == NULL)
@@ -177,7 +181,7 @@ int fir_fit_solve(fir_fit_workspace_t *workspace,
         || (coefficient_capacity < workspace->config.tap_count)) {
         return FIR_FIT_INVALID_ARGUMENT;
     }
-    if (workspace->sample_count < workspace->unique_coefficient_count) {
+    if (workspace->sample_count < workspace->coefficient_count) {
         return FIR_FIT_INSUFFICIENT_SAMPLES;
     }
 
@@ -186,12 +190,8 @@ int fir_fit_solve(fir_fit_workspace_t *workspace,
         return status;
     }
 
-    center = (workspace->config.tap_count - 1U) / 2U;
-    coefficients[center] = (float)solution[0];
-    for (offset = 1U; offset <= center; ++offset) {
-        float coefficient = (float)solution[offset];
-        coefficients[center - offset] = coefficient;
-        coefficients[center + offset] = coefficient;
+    for (tap = 0U; tap < workspace->coefficient_count; ++tap) {
+        coefficients[tap] = (float)solution[tap];
     }
     return FIR_FIT_SUCCESS;
 }
@@ -204,27 +204,35 @@ int fir_fit_evaluate(const float *coefficients,
                      double *response_imag)
 {
     double omega;
-    double amplitude;
-    unsigned int center;
-    unsigned int offset;
+    double basis_real = 1.0;
+    double basis_imag = 0.0;
+    double cosine;
+    double sine;
+    double real = 0.0;
+    double imag = 0.0;
+    unsigned int tap;
 
     if ((coefficients == NULL) || (response_real == NULL)
         || (response_imag == NULL) || (sample_rate_hz <= 0.0)
-        || (tap_count < 3U) || (tap_count > FIR_FIT_MAX_TAPS)
-        || ((tap_count & 1U) == 0U) || (frequency_hz < 0.0)
+        || (tap_count < 1U) || (tap_count > FIR_FIT_MAX_TAPS)
+        || (frequency_hz < 0.0)
         || (frequency_hz > sample_rate_hz / 2.0)) {
         return FIR_FIT_INVALID_ARGUMENT;
     }
 
-    center = (tap_count - 1U) / 2U;
     omega = FIR_FIT_TWO_PI * frequency_hz / sample_rate_hz;
-    amplitude = (double)coefficients[center];
-    for (offset = 1U; offset <= center; ++offset) {
-        amplitude += 2.0 * (double)coefficients[center - offset]
-                   * cos(omega * (double)offset);
+    cosine = cos(omega);
+    sine = sin(omega);
+    for (tap = 0U; tap < tap_count; ++tap) {
+        double previous_real;
+        real += (double)coefficients[tap] * basis_real;
+        imag += (double)coefficients[tap] * basis_imag;
+        previous_real = basis_real;
+        basis_real = basis_real * cosine + basis_imag * sine;
+        basis_imag = basis_imag * cosine - previous_real * sine;
     }
 
-    *response_real = amplitude * cos(omega * (double)center);
-    *response_imag = -amplitude * sin(omega * (double)center);
+    *response_real = real;
+    *response_imag = imag;
     return FIR_FIT_SUCCESS;
 }

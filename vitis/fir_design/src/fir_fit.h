@@ -3,8 +3,7 @@
 
 #include <stddef.h>
 
-#define FIR_FIT_MAX_TAPS             129U
-#define FIR_FIT_MAX_UNIQUE_COEFFS    ((FIR_FIT_MAX_TAPS + 1U) / 2U)
+#define FIR_FIT_MAX_TAPS  129U
 
 typedef struct {
     double sample_rate_hz;
@@ -14,11 +13,10 @@ typedef struct {
 
 typedef struct {
     fir_fit_config_t config;
-    unsigned int unique_coefficient_count;
+    unsigned int coefficient_count;
     unsigned int sample_count;
-    double normal_matrix[FIR_FIT_MAX_UNIQUE_COEFFS]
-                        [FIR_FIT_MAX_UNIQUE_COEFFS];
-    double right_hand_side[FIR_FIT_MAX_UNIQUE_COEFFS];
+    double normal_matrix[FIR_FIT_MAX_TAPS][FIR_FIT_MAX_TAPS];
+    double right_hand_side[FIR_FIT_MAX_TAPS];
 } fir_fit_workspace_t;
 
 enum {

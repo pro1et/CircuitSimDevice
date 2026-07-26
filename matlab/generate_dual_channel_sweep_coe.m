@@ -13,7 +13,8 @@ cfg.f_stop_hz = 60000;
 cfg.f_step_hz = 20;
 cfg.frequency_hz = (cfg.f_start_hz:cfg.f_step_hz:cfg.f_stop_hz).';
 cfg.bram_depth_words = 4096;
-cfg.fs_hz = 250e3;
+cfg.adc_sample_rate_hz = 300e3;
+cfg.fs_hz = cfg.adc_sample_rate_hz;
 cfg.adc_full_scale = 32767;
 cfg.samples_per_point = 4096;
 cfg.input_peak_fs = 0.72;
@@ -65,7 +66,17 @@ complete_words_raw = pack_complete_iq(filtered_i, filtered_q, direct_i, direct_q
 direct_words = pad_words(direct_words_raw, cfg.bram_depth_words);
 filtered_words = pad_words(filtered_words_raw, cfg.bram_depth_words);
 complete_words = pad_words(complete_words_raw, cfg.bram_depth_words);
-complete_words_32 = split_u64_words(complete_words);
+complete_words_32_payload = split_u64_words(complete_words_raw);
+bram_header_words = uint32([
+    hex2dec('53574550');       % MAGIC: ASCII "SWEP"
+    1;                        % STATUS: bit 0 = DONE
+    count;
+    cfg.f_start_hz;
+    cfg.f_step_hz;
+    cfg.adc_sample_rate_hz
+]);
+complete_words_32 = pad_words([bram_header_words; ...
+    complete_words_32_payload], 2 * cfg.bram_depth_words);
 script_dir = fileparts(mfilename('fullpath'));
 coe_dir = fullfile(script_dir, '..', 'doc');
 if ~isfolder(coe_dir)
@@ -92,8 +103,9 @@ legend('Direct channel', 'Filtered channel', 'Location', 'northeast');
 title('Dual physical-channel FPGA DDC model');
 exportgraphics(gcf, fullfile(script_dir, 'dual_channel_iq_response.png'), 'Resolution', 150);
 
-fprintf('Generated %d I/Q points; all COEs are padded to %d words.\n', ...
-    count, cfg.bram_depth_words);
+fprintf(['Generated %d I/Q points; 64-bit tables use %d words and ' ...
+    'the header-prefixed 32-bit table uses %d words.\n'], ...
+    count, cfg.bram_depth_words, 2 * cfg.bram_depth_words);
 
 function h = lowpass_fir(taps, cutoff_hz, fs_hz)
     m = (taps - 1) / 2;

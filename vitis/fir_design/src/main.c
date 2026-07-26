@@ -18,9 +18,9 @@ typedef struct {
 } sweep_iq_expected_t;
 
 static const sweep_iq_expected_t expected_points[] = {
-    {0U,    200U,   4755, -11304, 1114, -11914},
-    {1495U, 30100U, 4268, -10995,  -12,     -9},
-    {2990U, 60000U, 4265, -10997,    0,      0}
+    {0U,    200U,   4947, -11162, 1894, -11729},
+    {1495U, 30100U, 4266, -10999,   -5,      4},
+    {2990U, 60000U, 4267, -10995,   -6,      0}
 };
 
 #define TRANSFER_PRINT_TARGET_POINTS  300U
@@ -155,7 +155,7 @@ static void print_transfer_function_sweep(void)
     u32 last_emitted_index = 0xFFFFFFFFU;
 
     xil_printf("\r\nH(jw) magnitude sweep CSV\r\n");
-    xil_printf("Build: dynamic sweep + floating FIR fit v3\r\n");
+    xil_printf("Build: BRAM header + dynamic sweep + general real FIR fit v5\r\n");
     xil_printf("Q format: signed Q16.16 for real/imag, unsigned Q16.16 for magnitude.\r\n");
     xil_printf("frequency_hz,h_real_q16,h_imag_q16,magnitude_q16,gain_per_mille\r\n");
 
@@ -244,7 +244,7 @@ static void generate_and_test_fir(void)
     int status;
 
     xil_printf("\r\nFloating FIR fit from measured H(jw)\r\n");
-    xil_printf("Model: real symmetric %u-tap FIR, adc_fs=%u Hz, samples=%u, ridge=1e-6\r\n",
+    xil_printf("Model: general real-coefficient %u-tap FIR, adc_fs=%u Hz, samples=%u, ridge=1e-6\r\n",
                FIR_FIT_TAP_COUNT, sweep_config->adc_sample_rate_hz,
                sweep_config->point_count);
 
@@ -364,7 +364,23 @@ int main(void)
      * the only USB cable to the USB UART connector and open the COM port.
      */
     for (;;) {
+        int status;
+        const sweep_iq_header_t *header;
+
         ps_button_wait_for_press();
+        status = sweep_iq_load_config_from_bram();
+        header = sweep_iq_get_last_header();
+        xil_printf("\r\nBRAM_CONFIG_RAW,magic=0x%08x,status=0x%08x,points=%u,first_hz=%u,step_hz=%u,adc_fs_hz=%u\r\n",
+                   header->magic, header->status, header->point_count,
+                   header->first_frequency_hz,
+                   header->frequency_step_hz,
+                   header->adc_sample_rate_hz);
+        if (status != XST_SUCCESS) {
+            xil_printf("\r\nBRAM_HEADER_ERROR,status=%d\r\n", status);
+            xil_printf("Expected MAGIC=0x%08x and STATUS.DONE=1.\r\n",
+                       SWEEP_IQ_HEADER_MAGIC);
+            continue;
+        }
         print_selected_points();
         print_transfer_function_sweep();
         generate_and_test_fir();

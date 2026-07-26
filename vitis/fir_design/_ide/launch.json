@@ -28,7 +28,7 @@
           "psDevice": "Auto Detect"
         },
         "resetAPU": false,
-        "bitstreamFile": "${workspaceFolder}\\fir_design\\_ide\\bitstream\\system_wrapper.bit",
+        "bitstreamFile": "${workspaceFolder}\\..\\work\\CircuitSimDevice.runs\\impl_1\\system_wrapper.bit",
         "zynqInitialization": {
           "isFsbl": false,
           "usingFSBL": {
