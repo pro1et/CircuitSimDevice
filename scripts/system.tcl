@@ -274,7 +274,7 @@ proc create_root_design { parentCell } {
   # Create instance: blk_mem_gen_0, and set properties
   set blk_mem_gen_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:blk_mem_gen:8.4 blk_mem_gen_0 ]
   set_property -dict [list \
-    CONFIG.Assume_Synchronous_Clk {true} \
+    CONFIG.Assume_Synchronous_Clk {false} \
     CONFIG.Coe_File $sweep_coe_file \
     CONFIG.Enable_32bit_Address {true} \
     CONFIG.Load_Init_File {true} \
@@ -452,5 +452,16 @@ proc create_root_design { parentCell } {
 ##################################################################
 
 create_root_design ""
+
+# The Block Memory Generator cache key does not reliably track changes to the
+# external COE contents.  Disable cache reuse for this generated BD IP so a
+# regenerated output product always consumes the repository COE file.
+set bram_ip_xci [get_files -quiet -all *system_blk_mem_gen_0_0.xci]
+if { [llength $bram_ip_xci] == 1 } {
+   config_ip_cache -disable_for_ip $bram_ip_xci
+} else {
+   common::send_gid_msg -ssname BD::TCL -id 2100 -severity "WARNING" \
+      "Expected one XCI for system_blk_mem_gen_0_0, found [llength $bram_ip_xci]."
+}
 
 

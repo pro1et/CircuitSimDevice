@@ -197,6 +197,17 @@ if { [lsearch -exact [list 1 2 3] $bd_result] >= 0 } {
   error "Block Design reconstruction failed with status $bd_result"
 }
 
+# system.tcl disables synthesis-cache reuse for the initialized BRAM XCI.
+# Assert that the generated IP file is present so COE changes cannot silently
+# fall back to an unrelated or stale Block Memory Generator output product.
+set bram_ip_xci [get_files -quiet -all *system_blk_mem_gen_0_0.xci]
+if { [llength $bram_ip_xci] != 1 } {
+  error "Expected exactly one generated XCI for system_blk_mem_gen_0_0"
+}
+if { ![config_ip_cache -is_ip_disabled $bram_ip_xci] } {
+  config_ip_cache -disable_for_ip $bram_ip_xci
+}
+
 # Generate and add the HDL wrapper for the recreated Block Design.
 set bd_file [get_files -quiet -norecurse system.bd]
 if { [llength $bd_file] != 1 } {
