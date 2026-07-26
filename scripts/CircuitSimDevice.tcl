@@ -30,7 +30,7 @@
 #
 # 3. The following remote source files that were added to the original project:-
 #
-#    "../doc/sweep_iq_complete.coe"
+#    "../doc/sweep_iq_complete_32.coe"
 #
 #*****************************************************************************************
 
@@ -42,7 +42,7 @@ proc checkRequiredFiles { origin_dir} {
  "[file normalize "$origin_dir/../src/hdl/LED.v"]"\
  "[file normalize "$origin_dir/../src/constrs/button_led.xdc"]"\
  "[file normalize "$origin_dir/system.tcl"]"\
- "[file normalize "$origin_dir/../doc/sweep_iq_complete.coe"]"\
+ "[file normalize "$origin_dir/../doc/sweep_iq_complete_32.coe"]"\
   ]
   foreach ifile $files {
     if { ![file isfile $ifile] } {
@@ -178,7 +178,7 @@ if {[string equal [get_filesets -quiet sources_1] ""]} {
 # Set 'sources_1' fileset object
 set obj [get_filesets sources_1]
 set files [list \
- [file normalize "$project_root_dir/doc/sweep_iq_complete.coe"] \
+ [file normalize "$project_root_dir/doc/sweep_iq_complete_32.coe"] \
 ]
 add_files -norecurse -fileset $obj $files
 

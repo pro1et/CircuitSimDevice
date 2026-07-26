@@ -65,6 +65,7 @@ complete_words_raw = pack_complete_iq(filtered_i, filtered_q, direct_i, direct_q
 direct_words = pad_words(direct_words_raw, cfg.bram_depth_words);
 filtered_words = pad_words(filtered_words_raw, cfg.bram_depth_words);
 complete_words = pad_words(complete_words_raw, cfg.bram_depth_words);
+complete_words_32 = split_u64_words(complete_words);
 script_dir = fileparts(mfilename('fullpath'));
 coe_dir = fullfile(script_dir, '..', 'doc');
 if ~isfolder(coe_dir)
@@ -74,6 +75,7 @@ write_coe(fullfile(coe_dir, 'sweep_frequency_hz.coe'), frequency_words, 8);
 write_coe(fullfile(coe_dir, 'sweep_iq_direct.coe'), direct_words, 8);
 write_coe(fullfile(coe_dir, 'sweep_iq_filtered.coe'), filtered_words, 8);
 write_coe(fullfile(coe_dir, 'sweep_iq_complete.coe'), complete_words, 16);
+write_coe(fullfile(coe_dir, 'sweep_iq_complete_32.coe'), complete_words_32, 8);
 
 direct_mag = hypot(double(direct_i), double(direct_q));
 filtered_mag = hypot(double(filtered_i), double(filtered_q));
@@ -145,6 +147,12 @@ end
 function padded = pad_words(words, depth)
     words = words(:);
     padded = [words; zeros(depth - numel(words), 1, 'like', words)];
+end
+
+function words32 = split_u64_words(words64)
+    low = uint32(bitand(words64(:), uint64(4294967295)));
+    high = uint32(bitshift(words64(:), -32));
+    words32 = reshape([low, high].', [], 1);
 end
 
 function write_coe(filename, words, hex_width)

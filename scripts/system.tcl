@@ -19,7 +19,7 @@ set script_folder [_tcl::get_script_folder]
 variable project_root_dir
 set project_root_dir [file normalize "$script_folder/.."]
 variable sweep_coe_file
-set sweep_coe_file [file normalize "$project_root_dir/doc/sweep_iq_complete.coe"]
+set sweep_coe_file [file normalize "$project_root_dir/doc/sweep_iq_complete_32.coe"]
 
 if { ![file isfile $sweep_coe_file] } {
    error "Required BRAM initialization file not found: $sweep_coe_file"
@@ -248,7 +248,8 @@ proc create_root_design { parentCell } {
   # Create instance: axi_bram_ctrl_0, and set properties
   set axi_bram_ctrl_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_bram_ctrl:4.1 axi_bram_ctrl_0 ]
   set_property -dict [list \
-    CONFIG.DATA_WIDTH {64} \
+    CONFIG.DATA_WIDTH {32} \
+    CONFIG.READ_LATENCY {1} \
     CONFIG.SINGLE_PORT_BRAM {1} \
   ] $axi_bram_ctrl_0
 
@@ -275,13 +276,16 @@ proc create_root_design { parentCell } {
   set_property -dict [list \
     CONFIG.Assume_Synchronous_Clk {true} \
     CONFIG.Coe_File $sweep_coe_file \
+    CONFIG.Enable_32bit_Address {true} \
     CONFIG.Load_Init_File {true} \
     CONFIG.Memory_Type {True_Dual_Port_RAM} \
-    CONFIG.Read_Width_A {64} \
-    CONFIG.Read_Width_B {64} \
-    CONFIG.Write_Depth_A {4096} \
-    CONFIG.Write_Width_A {64} \
-    CONFIG.Write_Width_B {64} \
+    CONFIG.Read_Width_A {32} \
+    CONFIG.Read_Width_B {32} \
+    CONFIG.Register_PortA_Output_of_Memory_Primitives {false} \
+    CONFIG.Register_PortB_Output_of_Memory_Primitives {false} \
+    CONFIG.Write_Depth_A {8192} \
+    CONFIG.Write_Width_A {32} \
+    CONFIG.Write_Width_B {32} \
     CONFIG.use_bram_block {Stand_Alone} \
   ] $blk_mem_gen_0
 

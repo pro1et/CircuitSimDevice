@@ -11,4 +11,4 @@
 | `button_pressed` | `axi_gpio_0/gpio_io_i`; use for PS polling or interrupt |
 | `button_event` | Optional debug signal; one 100 MHz cycle per confirmed press |
 
-The initialized `blk_mem_gen_0` is added separately as a Block Design IP. Its `BRAM_PORTA` connects to `axi_bram_ctrl_0/BRAM_PORTA`, letting PS software read its 4096 64-bit words. `BRAM_PORTB` is reserved for future PL data-producer logic.
+The initialized `blk_mem_gen_0` is added separately as a Block Design IP. Its 32-bit byte-addressed `BRAM_PORTA` connects to `axi_bram_ctrl_0/BRAM_PORTA`, letting PS software read 8192 words without a GP0 width conversion. The AXI BRAM controller read latency is 1 and the Block Memory primitive output registers are disabled, so an AXI response contains the word selected by the current request rather than the preceding request. Two adjacent words form one 64-bit IQ point. `BRAM_PORTB` is reserved for future PL data-producer logic.

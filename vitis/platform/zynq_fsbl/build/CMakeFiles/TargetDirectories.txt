@@ -1,0 +1,4 @@
+E:/Vivado/FPGA_project/CircuitSimDevice/vitis/platform/zynq_fsbl/build/CMakeFiles/fsbl.elf.dir
+E:/Vivado/FPGA_project/CircuitSimDevice/vitis/platform/zynq_fsbl/build/CMakeFiles/print_build_info.dir
+E:/Vivado/FPGA_project/CircuitSimDevice/vitis/platform/zynq_fsbl/build/CMakeFiles/edit_cache.dir
+E:/Vivado/FPGA_project/CircuitSimDevice/vitis/platform/zynq_fsbl/build/CMakeFiles/rebuild_cache.dir
