@@ -4,7 +4,7 @@
 
 `ps_bram_subsystem_bd` 将 Zynq PS、AXI 互连和三块双口 BRAM 封装为稳定的软硬件边界。PS 只通过 AXI 映射的 BRAM 与业务 PL 交换数据；ADC、DDS、扫频、IQ 解调和 FIR 模块可以在边界外独立演进。
 
-可重复构建设计的源文件是 `fpga/scripts/build_ps_bram_subsystem.tcl`。Vivado 自动生成的 BD、IP 输出产品、标准 wrapper、报告和 XSA 均位于 `work/ps_bram_subsystem/`，不纳入版本管理。供最终 PL 顶层例化且带接口说明的稳定 wrapper 为 `fpga/src/hdl/ps_bram_subsystem_wrapper.sv`。
+可重复构建设计的 Tcl源文件是 `fpga/scripts/build_ps_bram_subsystem.tcl`。BD本体及 output products 仅重建在主工程 `fpga/work/CircuitSimDevice/` 内，不纳入版本管理；供最终 PL顶层例化且带接口说明的稳定 wrapper为 `fpga/src/hdl/ps_bram_subsystem_wrapper.sv`。使用 wrapper 前必须先运行 Tcl 在同一主工程内重建 `ps_bram_subsystem_bd`。
 
 ## 2. 已确认的工程条件
 
@@ -76,6 +76,17 @@ AXI BRAM Controller 本身支持 AXI 读写，所以上表中的 PS 方向是必
 
 参数 BRAM 的 4 KiB 物理窗口已固定，但字段布局尚未定义。参数读取模块实现前必须冻结第 7 节列出的协议。
 
+### 4.4 HMI UART1 EMIO
+
+PS7 UART1已配置为 EMIO并由稳定 wrapper导出：
+
+| 端口 | 方向 | 固定管脚 | 接线 |
+| --- | --- | --- | --- |
+| `hmi_uart_rx` | 输入 | T10，Bank 34，LVCMOS33 | 串口屏TX → FPGA/PS RX |
+| `hmi_uart_tx` | 输出 | T11，Bank 34，LVCMOS33 | FPGA/PS TX → 串口屏RX |
+
+串口参数为115200 bit/s、8N1。串口屏5 V供电但 UART为3.3 V TTL；双方必须共地，并确认 Bank 34实板供电为3.3 V。
+
 ## 5. 时钟、复位与跨时钟域
 
 - PS 的 `FCLK_CLK0` 配置为 100 MHz，统一驱动 `M_AXI_GP0`、AXI Interconnect、三个 AXI BRAM Controller 和三块 BRAM 的 Port A。
@@ -87,20 +98,21 @@ AXI BRAM Controller 本身支持 AXI 读写，所以上表中的 PS 方向是必
 
 ## 6. 构建、验证和 XSA
 
-必须从仓库 `work/` 目录、使用 Conda 环境 `vivado2022` 中的 Vivado 2022.2 执行：
+必须从仓库 `fpga/work/` 目录、使用 Conda 环境 `vivado2022` 中的 Vivado 2022.2 执行：
 
 ```powershell
 conda run -n vivado2022 F:\vivado2022\Vivado\2022.2\bin\vivado.bat `
-  -mode batch -source ..\fpga\scripts\build_ps_bram_subsystem.tcl -notrace
+  -mode batch -source ..\scripts\build_ps_bram_subsystem.tcl -notrace
 ```
 
 脚本依次执行 BD Validate、输出产品生成、Vivado wrapper 生成、顶层综合、利用率/CDC 报告和 fixed XSA 导出。主要产物：
 
-- 自动 wrapper：`work/ps_bram_subsystem/ps_bram_subsystem.gen/sources_1/bd/ps_bram_subsystem_bd/hdl/ps_bram_subsystem_bd_wrapper.v`
-- 地址报告：`work/ps_bram_subsystem/reports/address_map.rpt`
-- 综合利用率：`work/ps_bram_subsystem/reports/post_synth_utilization.rpt`
-- CDC 报告：`work/ps_bram_subsystem/reports/post_synth_cdc.rpt`
-- fixed XSA：`work/ps_bram_subsystem/exports/ps_bram_subsystem.xsa`
+- 自动 wrapper：`fpga/work/ps_bram_subsystem/ps_bram_subsystem.gen/sources_1/bd/ps_bram_subsystem_bd/hdl/ps_bram_subsystem_bd_wrapper.v`
+- 地址报告：`fpga/work/ps_bram_subsystem/reports/address_map.rpt`
+- 综合利用率：`fpga/work/ps_bram_subsystem/reports/post_synth_utilization.rpt`
+- UART管脚报告：`fpga/work/ps_bram_subsystem/reports/post_synth_io.rpt`
+- CDC 报告：`fpga/work/ps_bram_subsystem/reports/post_synth_cdc.rpt`
+- fixed XSA：`fpga/work/ps_bram_subsystem/exports/ps_bram_subsystem.xsa`
 
 当前 fixed XSA 不包含 bitstream，可以用于先建立稳定的 Vitis Platform 地址和硬件描述。正式上板导出含 bitstream 的 XSA 前，仍需把 wrapper 集成到完整 PL 顶层、连接真实 PL 时钟/复位、加入板级 XDC、完成实现并确认 Mizar Z7 的 PS DDR/MIO preset 参数。
 
@@ -112,4 +124,3 @@ conda run -n vivado2022 F:\vivado2022\Vivado\2022.2\bin\vivado.bat `
 4. IQ 协议中频率轴目前仍依赖固定起点/步长；后续应决定由参数 BRAM、IQ header 或双方配置版本绑定。
 5. PS 软件的 MMIO cache 属性、内存屏障位置和三块 BRAM 的单写者访问封装。
 6. Mizar Z7 DDR PCB 走线延时、MIO 电气参数和可验证的官方 board preset；缺少这些信息时，当前 XSA只能视为接口/软件开发基线，不能作为 DDR 上板签核依据。
-

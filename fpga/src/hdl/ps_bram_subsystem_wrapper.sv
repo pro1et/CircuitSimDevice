@@ -7,6 +7,7 @@
 //     1. IQ BRAM：PL写，PS读；
 //     2. FIR系数BRAM：PS写，PL读；
 //     3. 参数BRAM：PS写，PL读。
+//   同时将PS UART1通过EMIO导出，用于连接115200 8N1串口屏。
 //
 // 使用规则：
 //   - 三组addr均为“各自BRAM窗口内”的32位字节偏移，不是0x4000_0000等
@@ -19,6 +20,7 @@
 //   - Port A属于PS FCLK0 100 MHz域，Port B允许使用独立业务时钟。跨时钟
 //     的整块数据一致性必须由STATUS/GENERATION发布协议保证；禁止两侧同时
 //     写同一块BRAM，也禁止在发布期间消费尚未完成的payload。
+//   - hmi_uart_rx/TX名称始终以PS为视角：屏幕TX接RX(T10)，屏幕RX接TX(T11)。
 //
 // 集成方式：
 //   本文件与脚本生成的ps_bram_subsystem_bd.bd共同加入最终Vivado工程。
@@ -49,6 +51,10 @@ module ps_bram_subsystem_wrapper (
     inout  wire        FIXED_IO_ps_clk,
     inout  wire        FIXED_IO_ps_porb,
     inout  wire        FIXED_IO_ps_srstb,
+
+    // PS UART1经EMIO连接串口屏：屏幕TX接T10，屏幕RX接T11。
+    input  wire        hmi_uart_rx,
+    output wire        hmi_uart_tx,
 
     // IQ BRAM Port B：PL唯一写者。窗口0x0000~0x7FFC，共8192 words。
     input  wire        iq_pl_clk,
@@ -95,6 +101,8 @@ module ps_bram_subsystem_wrapper (
         .FIXED_IO_ps_clk   (FIXED_IO_ps_clk),
         .FIXED_IO_ps_porb  (FIXED_IO_ps_porb),
         .FIXED_IO_ps_srstb (FIXED_IO_ps_srstb),
+        .HMI_UART_rxd      (hmi_uart_rx),
+        .HMI_UART_txd      (hmi_uart_tx),
         .iq_pl_clk         (iq_pl_clk),
         .iq_pl_rst         (iq_pl_rst),
         .iq_pl_en          (iq_pl_en),

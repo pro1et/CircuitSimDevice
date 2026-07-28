@@ -1,18 +1,21 @@
 # ============================================================================
-# PS-AXI-三BRAM通信子系统创建、校验、wrapper生成、综合与XSA导出脚本
+# PS-AXI-三BRAM通信子系统在主工程中原地重建与校验脚本
 #
 # 使用方法：
-#   必须从仓库work目录，在conda环境vivado2022中运行：
-#   vivado -mode batch -source ../fpga/scripts/build_ps_bram_subsystem.tcl
+#   必须从仓库fpga/work目录，在conda环境vivado2022中运行：
+#   vivado -mode batch -source ../scripts/build_ps_bram_subsystem.tcl -notrace
 #
 # 设计边界：
-#   PS7 M_AXI_GP0 -> AXI Interconnect -> 三个AXI BRAM Controller -> 三块TDP BRAM。
+#   PS7 M_AXI_GP0 -> AXI Interconnect -> 三个AXI BRAM Controller -> 三块TDP BRAM；
+#   PS7 UART1通过EMIO导出到PL管脚T10/T11，供115200 8N1串口屏使用。
 #   Port A属于100 MHz AXI时钟域；Port B以角色受限的独立HDL端口导出给PL。
 #   IQ端只导出写接口，FIR/参数端只导出读接口，从结构上减少双写者误用。
 #
-# 生成位置：
-#   工程、BD、自动wrapper、综合结果、地址报告和XSA全部位于work目录。
-#   本Tcl脚本是可重复创建BD的长期源文件，不依赖work中已有工程。
+# 生成位置和边界：
+#   BD及其output products位于fpga/work/CircuitSimDevice主工程内部。
+#   本脚本会移除旧BD引用并重建同名BD，同时移除稳定wrapper的工程引用，供用户
+#   随后手动重新添加fpga/src/hdl/ps_bram_subsystem_wrapper.sv。
+#   本脚本禁止启动综合、布局布线、bitstream或XSA导出。
 # ============================================================================
 if {![string match "2022.2*" [version -short]]} {
     error "PS-BRAM子系统必须使用Vivado 2022.2构建"
@@ -20,16 +23,42 @@ if {![string match "2022.2*" [version -short]]} {
 
 set script_dir  [file dirname [file normalize [info script]]]
 set fpga_dir    [file dirname $script_dir]
-set project_dir [file join [pwd] ps_bram_subsystem]
-set export_dir  [file join $project_dir exports]
-set report_dir  [file join $project_dir reports]
+set expected_work_dir [file normalize [file join $fpga_dir work]]
+if {[file normalize [pwd]] ne $expected_work_dir} {
+    error "Must run this script from $expected_work_dir; current directory is [file normalize [pwd]]"
+}
+set project_dir  [file join [pwd] CircuitSimDevice]
+set project_file [file join $project_dir CircuitSimDevice.xpr]
+set report_dir   [file join $project_dir reports ps_bram_subsystem]
 set part_name   xc7z020clg400-2
 set bd_name     ps_bram_subsystem_bd
 
-file mkdir $export_dir
+if {![file exists $project_file]} {
+    error "找不到主工程：$project_file"
+}
 file mkdir $report_dir
-create_project -force ps_bram_subsystem $project_dir -part $part_name
-set_property target_language Verilog [current_project]
+open_project $project_file
+if {[get_property PART [current_project]] ne $part_name} {
+    error "主工程器件不是$part_name，而是[get_property PART [current_project]]"
+}
+
+# 移除原来直接指向fpga/src/bd的BD引用，以及稳定wrapper的旧工程引用。
+# 源RTL文件本身不会被删除，用户可在GUI中重新手动添加wrapper。
+set old_bd_files [get_files -quiet */$bd_name.bd]
+if {[llength $old_bd_files] > 0} {
+    remove_files $old_bd_files
+}
+set stable_wrapper [file join $fpga_dir src hdl ps_bram_subsystem_wrapper.sv]
+set old_wrapper_files [get_files -quiet $stable_wrapper]
+if {[llength $old_wrapper_files] > 0} {
+    remove_files $old_wrapper_files
+}
+
+# 仅清理主工程work内部的同名旧BD副本，再由本脚本创建全新BD。
+set work_bd_dir [file join $project_dir CircuitSimDevice.srcs sources_1 bd $bd_name]
+if {[file exists $work_bd_dir]} {
+    file delete -force $work_bd_dir
+}
 create_bd_design $bd_name
 
 # ----------------------------------------------------------------------------
@@ -58,6 +87,8 @@ set_property -dict [list \
     CONFIG.PCW_EN_CLK0_PORT {1} \
     CONFIG.PCW_EN_RST0_PORT {1} \
     CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ {100} \
+    CONFIG.PCW_UART1_PERIPHERAL_ENABLE {1} \
+    CONFIG.PCW_UART1_UART1_IO {EMIO} \
     CONFIG.PCW_UIPARAM_DDR_ENABLE {1} \
     CONFIG.PCW_UIPARAM_DDR_MEMORY_TYPE {DDR 3} \
     CONFIG.PCW_UIPARAM_DDR_PARTNO {MT41J256M16 RE-125} \
@@ -68,6 +99,8 @@ make_bd_intf_pins_external [get_bd_intf_pins $ps7/DDR]
 set_property name DDR [get_bd_intf_ports DDR_0]
 make_bd_intf_pins_external [get_bd_intf_pins $ps7/FIXED_IO]
 set_property name FIXED_IO [get_bd_intf_ports FIXED_IO_0]
+make_bd_intf_pins_external [get_bd_intf_pins $ps7/UART_1]
+set_property name HMI_UART [get_bd_intf_ports UART_1_0]
 
 # ----------------------------------------------------------------------------
 # AXI互连、统一时钟和复位
@@ -202,6 +235,8 @@ assign_bd_address -offset $PARAM_BASE -range $PARAM_RANGE \
 validate_bd_design
 save_bd_design
 
+set bd_file [get_files [file join $project_dir CircuitSimDevice.srcs sources_1 bd $bd_name $bd_name.bd]]
+
 # Vivado 2022.2没有report_bd_address命令，直接从Address Editor对象读取并记录
 # 工具实际接受的OFFSET/RANGE，避免报告只是重复脚本常量。
 set addr_report [open [file join $report_dir address_map.rpt] w]
@@ -217,41 +252,14 @@ foreach {role seg_name} [list \
 }
 close $addr_report
 
-set bd_file [get_files [file join $project_dir ps_bram_subsystem.srcs sources_1 bd $bd_name $bd_name.bd]]
 generate_target all $bd_file
-set wrapper_files [make_wrapper -files $bd_file -top]
-add_files -norecurse $wrapper_files
-set stable_wrapper [file join $fpga_dir src hdl ps_bram_subsystem_wrapper.sv]
-if {![file exists $stable_wrapper]} {
-    error "缺少稳定HDL wrapper：$stable_wrapper"
-}
-add_files -norecurse $stable_wrapper
-set_property file_type SystemVerilog [get_files $stable_wrapper]
-set wrapper_name ps_bram_subsystem_wrapper
-set_property top $wrapper_name [current_fileset]
 update_compile_order -fileset sources_1
-
-launch_runs synth_1 -jobs 2
-wait_on_run synth_1
-set synth_status [get_property STATUS [get_runs synth_1]]
-if {[get_property PROGRESS [get_runs synth_1]] ne "100%" ||
-    ![string match "synth_design Complete*" $synth_status]} {
-    error "PS-BRAM子系统综合失败：$synth_status"
-}
-open_run synth_1
-report_utilization -file [file join $report_dir post_synth_utilization.rpt]
-report_cdc -details -file [file join $report_dir post_synth_cdc.rpt]
-check_timing -verbose -file [file join $report_dir post_synth_check_timing.rpt]
-report_timing_summary -file [file join $report_dir post_synth_timing_summary.rpt]
-close_design
-
-write_hw_platform -fixed -force -file [file join $export_dir ps_bram_subsystem.xsa]
 
 puts "PS_BRAM_SUBSYSTEM_BD_VALIDATE=PASSED"
 puts "PS_BRAM_SUBSYSTEM_ADDRESS_IQ=$IQ_BASE/$IQ_RANGE"
 puts "PS_BRAM_SUBSYSTEM_ADDRESS_FIR=$FIR_BASE/$FIR_RANGE"
 puts "PS_BRAM_SUBSYSTEM_ADDRESS_PARAM=$PARAM_BASE/$PARAM_RANGE"
-puts "PS_BRAM_SUBSYSTEM_WRAPPER=$wrapper_files"
-puts "PS_BRAM_SUBSYSTEM_STABLE_WRAPPER=$stable_wrapper"
-puts "PS_BRAM_SUBSYSTEM_XSA=[file join $export_dir ps_bram_subsystem.xsa]"
+puts "PS_BRAM_SUBSYSTEM_WORK_BD=$bd_file"
+puts "PS_BRAM_SUBSYSTEM_WRAPPER_TO_ADD=$stable_wrapper"
+puts "PS_BRAM_SUBSYSTEM_RUNS_LAUNCHED=NONE"
 close_project

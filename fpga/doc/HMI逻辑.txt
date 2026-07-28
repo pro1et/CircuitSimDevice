@@ -1,0 +1,45 @@
+通信参数：UART 115200 bit/s，8N1；串口屏5V供电，UART信号为3.3V TTL。
+PS使用UART1并通过EMIO连接PL管脚：串口屏TX接FPGA T10（hmi_uart_rx），
+串口屏RX接FPGA T11（hmi_uart_tx）。
+Mode0只属于HMI/PS命令语义，不作为PL模式编码；DDS默认频率统一为500Hz。
+
+65 01 01 00 FF FF FF 启动Mode0 产生DDS正弦信号
+65 03 08 01 FF FF FF 启动100hz步长加减	65 03 09 01 FF FF FF 启动1Khz步长加减 65 03 0A 01 FF FF FF 启动10Khz步长加减 65 03 0B 01 FF FF FF 启动100Khz步长加减	65 03 06 00 FF FF FF 在该步长下+ 65 03 07 00 FF FF FF 在该步长下-
+默认输出500hz输出，100hz步长加减
+
+PS端用指令 Frequency.t0.txt="N" FF FF FF 来显示当前频率
+
+
+
+65 01 02 00 FF FF FF 进入Mode1 已知模型自动幅值补偿模式 默认为输出100hz频率 2V
+65 04 06 00 FF FF FF 幅度调大0.1V 65 04 07 00 FF FF FF 幅度调小0.1V
+PS端用指令 Amplitude.t0.txt="N" FF FF FF 来显示当前幅度
+
+65 04 09 00 FF FF FF 频率调大100Hz 65 04 0A 00 FF FF FF 频率调小100Hz
+PS端用指令 Amplitude.t1.txt="N" FF FF FF 来显示当前频率
+
+
+
+65 01 03 00 FF FF FF 进入扫频模式 默认扫频频率为20Hz 
+65 02 06 00 FF FF FF  扫频频率加10Hz 65 02 07 00 FF FF FF 扫频频率减10Hz
+
+PS端用指令 Sweep.t0.txt="N" FF FF FF 来显示当前扫频频率
+
+65 02 08 00 FF FF FF 开始扫频，并且跳转界面到学习界面
+
+Sim.t0.txt默认显示Not ready，当扫频结束后显示测得的滤波器类型结果，高通为HPF 低通为LPF 带阻为BSF 带通为BPF
+
+65 05 03 00 FF FF FF 开始学习 Sim.t0.txt显示Studying
+学习结束后显示Done
+
+65 05 04 00 FF FF FF 开始模拟滤波器 Sim.t0.txt显示Simulating
+参考单片机的发送指令：“
+单片机串口通过字符串模式发送t0.txt=”六六六”
+
+//注意arduino需要注意编码，因为arduino的默认编码是utf-8，串口屏默认编码是gb2312，请保证单片机与串口屏的编码相同，否则串口屏会显示乱码,或者不显示
+
+发送结束符：单片机通过HEX模式发送0xff 0xff 0xff
+
+此时屏幕上的t0控件内的文字变为“六六六”
+”
+来设置Sim.t0.txt的不同状态输出

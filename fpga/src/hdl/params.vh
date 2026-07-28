@@ -31,7 +31,7 @@
 // DDS IP 每路 sine/cosine 原始输出位宽。
 `define DDS_OUTPUT_W       8
 // 串口屏 UART 波特率；需要与 HMI 屏幕工程和 PS/PL UART 配置一致。
-`define HMI_UART_BPS       9600
+`define HMI_UART_BPS       115200
 
 // 串口屏页面 ID；PS/HMI 解析事件时用来过滤当前页面。
 `define HMI_PAGE_ID        8'd1
@@ -60,7 +60,7 @@
 // DDS 允许的最大输出频率，单位 Hz；需要小于采样率 Nyquist 且符合系统需求。
 `define DDS_FREQ_MAX_HZ    32'd1_000_000
 // 复位后 DDS 默认输出频率，单位 Hz。
-`define DDS_FREQ_DFLT_HZ   32'd1_000
+`define DDS_FREQ_DFLT_HZ   32'd500
 
 // DAC 满量程参考 Vpp，单位 mV；幅度缩放模块用作标定基准。
 `define DAC_FS_VPP_DFLT_MV 32'd3000
