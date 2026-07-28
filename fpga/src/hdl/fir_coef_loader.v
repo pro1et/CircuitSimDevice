@@ -23,8 +23,8 @@
 //   coef_error  -> 顶层状态寄存器或 ILA，用于提示系数协议错误。
 //
 // 时钟与复位：
-//   所有端口除 rst_n 外均同步到 clk。rst_n 为异步低有效复位。bram_clkb 直接
-//   输出 clk，bram_rstb 为高有效复位。
+//   所有端口均同步到clk。rst_n为同步低有效复位，必须由本时钟域复位同步器
+//   产生。bram_clkb直接输出clk，bram_rstb为寄存后的高有效同步复位。
 //
 // 输入格式：
 //   系数 BRAM header 遵循共享 BRAM 协议：
@@ -42,6 +42,7 @@
 //
 // 参数说明：
 //   TAP_COUNT 为期望系数数量，必须与 fir_filter 的 TAP_COUNT 和 PS 发布头一致。
+//   POLL_CYCLES 为两次协议轮询的间隔，硬件默认3000000拍，仿真时可缩短。
 //
 // 错误行为：
 //   MAGIC 不匹配时认为 PS 尚未发布，回到轮询；VERSION/TAP_COUNT/FORMAT/SCALE
@@ -52,7 +53,8 @@
 //   快照一致性，遵守“PS 写、PL 只读”的单写者规则。
 // ============================================================================
 module fir_coef_loader #(
-    parameter integer TAP_COUNT = 129 // 期望 FIR 抽头数量，需与 PS 和 fir_filter 一致。
+    parameter integer TAP_COUNT   = 129,     // 期望 FIR 抽头数量，需与 PS 和 fir_filter 一致。
+    parameter integer POLL_CYCLES = 3000000  // 两次BRAM协议轮询的间隔，单位为clk周期，必须大于0。
 ) (
     // 模块工作时钟，当前连接 30 MHz 采样时钟。
     input  wire                  clk,
@@ -61,8 +63,8 @@ module fir_coef_loader #(
 
     // 系数 BRAM Port B 时钟；直接连接 clk。
     output wire                  bram_clkb,
-    // 系数 BRAM Port B 高有效复位；由 ~rst_n 生成。
-    output wire                  bram_rstb,
+    // 系数BRAM Port B高有效同步复位；rst_n有效后的首个clk边沿置位。
+    output reg                   bram_rstb,
     // 系数 BRAM Port B 使能；读 header/payload 时拉高。
     output reg                   bram_enb,
     // 系数 BRAM Port B 字节写使能；本模块只读，固定为 0。
@@ -128,8 +130,12 @@ module fir_coef_loader #(
     reg [31:0] new_generation;
     reg [7:0] load_index;
 
+    initial begin
+        if (POLL_CYCLES <= 0)
+            $error("POLL_CYCLES 必须大于0");
+    end
+
     assign bram_clkb = clk;
-    assign bram_rstb = ~rst_n;
     assign bram_web  = 4'b0000;
     assign bram_dinb = 32'd0;
 
@@ -142,13 +148,14 @@ module fir_coef_loader #(
         end
     endtask
 
-    always @(posedge clk or negedge rst_n) begin
+    always @(posedge clk) begin
         if (!rst_n) begin
             state           <= ST_IDLE;
             poll_count      <= 32'd0;
             new_generation  <= 32'd0;
             load_index      <= 8'd0;
             bram_enb        <= 1'b0;
+            bram_rstb       <= 1'b1;
             bram_addrb      <= 32'd0;
             coef_we         <= 1'b0;
             coef_addr       <= 8'd0;
@@ -158,6 +165,7 @@ module fir_coef_loader #(
             coef_error      <= 1'b0;
             coef_generation <= 32'd0;
         end else begin
+            bram_rstb   <= 1'b0;
             bram_enb   <= 1'b0;
             coef_we    <= 1'b0;
             coef_clear <= 1'b0;
@@ -166,7 +174,7 @@ module fir_coef_loader #(
                 ST_IDLE: begin
                     // 低频轮询降低撞上 PS 写入中间态的概率；真正的一致性仍由
                     // STATUS=VALID 和 GENERATION 检查保证。
-                    if (poll_count >= 32'd3000000) begin
+                    if (poll_count >= POLL_CYCLES) begin
                         poll_count <= 32'd0;
                         bram_read(OFF_MAGIC);
                         state <= ST_MAGIC_A;
@@ -227,8 +235,9 @@ module fir_coef_loader #(
                         state <= ST_ERROR;
                     end
                 end
+                // 系数读取采用预取：进入A状态前已发出当前地址，A状态等待同步
+                // BRAM更新dout，B状态消费数据并同时发出下一地址。
                 ST_COEF_A: begin
-                    bram_read(OFF_PAYLOAD + ({24'd0, load_index} << 2));
                     state <= ST_COEF_B;
                 end
                 ST_COEF_B: begin
@@ -238,6 +247,8 @@ module fir_coef_loader #(
                     if (load_index == TAP_COUNT-1) begin
                         state <= ST_DONE;
                     end else begin
+                        bram_read(OFF_PAYLOAD +
+                                  ({24'd0, (load_index + 1'b1)} << 2));
                         load_index <= load_index + 1'b1;
                         state <= ST_COEF_A;
                     end

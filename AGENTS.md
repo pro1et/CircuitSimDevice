@@ -26,9 +26,10 @@ CircuitSimDevice/
 
 ## Vivado 和 XSim 生成文件
 
-- 所有 Vivado 和 XSim 生成的文件必须保存在仓库的 `work/` 目录中。
+- 所有 Vivado 和 XSim 生成的工程、日志、缓存、报告和临时文件必须保存在仓库的 `work/` 目录中；需要纳入版本管理并复用的 IP 核文件除外。
 - 运行 `vivado`、`xvlog`、`xelab`、`xsim` 以及相关构建或验证命令时，必须将 `work/` 设置为当前工作目录。仅把输入文件放在 `work/` 中，并不会改变这些工具的输出位置。
 - 禁止在仓库根目录运行 Vivado 或 XSim 的构建、编译和验证命令。
-- 调用 Vivado 工具时，必须使用名为 `vivado` 的 Conda 环境以及该环境中配置的 `VIVADO_HOME`。
+- 调用 Vivado 工具时，必须使用名为 `vivado2022` 的 Conda 环境以及该环境中配置的 `VIVADO_HOME`。
+- 所有需要长期保存或供后续工程、Block Design、PS/PL 集成复用的 IP 核文件，包括 `.xci`、`.xcix`、初始化文件及 IP 生成的源码/约束，必须放在 `fpga/src/ip/` 下；禁止只把唯一可用的 IP 核留在 `work/` 中。
 - `xsim.dir/`、`*.log`、`*.jou`、`*.pb`、缓存、报告以及其他生成文件均属于可丢弃的构建产物，不得在 `work/` 以外创建或提交这些文件。
 - 完成 Vivado 或 XSim 相关任务前，必须检查仓库根目录，确认没有遗留生成文件。
