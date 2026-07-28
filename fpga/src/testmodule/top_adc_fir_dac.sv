@@ -6,7 +6,7 @@
 //
 // 主要功能：
 //   在Mizar Z7上建立双通道AD-FIR-DA实时链路，独立验证300 kS/s、129抽头带通
-//   FIR的码制转换、系数初始化、有效信号、固定点乘加和物理ADC/DAC接口。
+//   FIR、100倍多相插值、码制转换、系数初始化和物理ADC/DAC接口。
 //   本顶层不包含DDS、扫频、IQ、PS或AXI通信；本地BRAM只提供上电初始系数。
 //
 // 使用方法：
@@ -32,12 +32,14 @@
 //
 // 输出格式：
 //   FIR使用signed 10位样本和Q1.31系数，56位累加，右移31位后饱和为signed
-//   10位。适配器转换回偏移二进制，并默认补偿DA板模拟输出级的反相极性。
+//   10位。100倍多相FIR将结果恢复为连续30 MS/s码流，适配器再转换回偏移
+//   二进制，并默认补偿DA板模拟输出级的反相极性。
 //
 // 握手时序：
 //   ADC启动后每拍有效；降采样器每100拍输出一个有效脉冲。coef_ready前FIR输入
 //   被门控。每路FIR使用FIR_MAC_LANES路MAC，约ceil(FIR_TAPS/FIR_MAC_LANES)
-//   拍后输出单拍valid；两路valid同时有效时DAC接收一对新样本，其余时间保持。
+//   拍后输出单拍valid；插值器为每个结果连续产生100个高速样本，稳态DAC每拍
+//   接收一对新样本。插值器phase=99同拍接收下一FIR结果，输出无空拍。
 //
 // 参数说明：
 //   ADC_STARTUP_CYCLES为ADC启动屏蔽拍数；FIR_TAPS固定应与COE头一致；
@@ -46,7 +48,8 @@
 //
 // 输出有效与延迟：
 //   启动时先等待MMCM、ADC屏蔽和系数装载。稳态样本延迟包含100点块平均窗口、
-//   FIR的ceil(FIR_TAPS/FIR_MAC_LANES)拍计算以及DAC半拍输出寄存延迟。
+//   FIR的ceil(FIR_TAPS/FIR_MAC_LANES)拍计算、插值滤波约199.5个高速样本群延迟
+//   以及DAC半拍输出寄存延迟。
 //
 // 错误行为：
 //   COE协议头错误时coef_ready不成立，DAC保持复位中间码。内部保留系数错误、
@@ -61,8 +64,8 @@
 //   输出应明显衰减。10 kHz和25 kHz处幅度理论上约为通带中心的-3 dB。
 //
 // 使用限制：
-//   仅针对xc7z020clg400-2和当前3.3 V转接板。300 kS/s输出采用零阶保持，DAC
-//   波形会包含采样镜像；模拟滤波器幅频和板级增益不属于本数字顶层保证范围。
+//   仅针对xc7z020clg400-2和当前3.3 V转接板。数字插值抑制第一采样镜像约63 dB，
+//   但不能替代板级模拟重建滤波器；模拟幅频和增益不属于本数字顶层保证范围。
 // ============================================================================
 module top_adc_fir_dac #(
     parameter int unsigned ADC_STARTUP_CYCLES = 6, // ADC解除复位后的数据屏蔽周期数
@@ -113,6 +116,14 @@ module top_adc_fir_dac #(
     logic signed [9:0] fir_data_b;
     logic       fir_valid_a;
     logic       fir_valid_b;
+    logic signed [9:0] interp_data_a;
+    logic signed [9:0] interp_data_b;
+    logic       interp_valid_a;
+    logic       interp_valid_b;
+    logic       interp_ready_a;
+    logic       interp_ready_b;
+    (* mark_debug = "true" *) logic interp_overflow_a;
+    (* mark_debug = "true" *) logic interp_overflow_b;
     logic [9:0] dac_input_a;
     logic [9:0] dac_input_b;
     logic       dac_valid_a;
@@ -188,8 +199,8 @@ module top_adc_fir_dac #(
         .adc_valid    (adc_valid),
         .fir_in_data  (adc_signed_a),
         .fir_in_valid (adc_signed_valid_a),
-        .fir_out_data (fir_data_a),
-        .fir_out_valid(fir_valid_a),
+        .fir_out_data (interp_data_a),
+        .fir_out_valid(interp_valid_a),
         .dac_data     (dac_input_a),
         .dac_valid    (dac_valid_a),
         .dac_clipped  (dac_clipped_a)
@@ -203,8 +214,8 @@ module top_adc_fir_dac #(
         .adc_valid    (adc_valid),
         .fir_in_data  (adc_signed_b),
         .fir_in_valid (adc_signed_valid_b),
-        .fir_out_data (fir_data_b),
-        .fir_out_valid(fir_valid_b),
+        .fir_out_data (interp_data_b),
+        .fir_out_valid(interp_valid_b),
         .dac_data     (dac_input_b),
         .dac_valid    (dac_valid_b),
         .dac_clipped  (dac_clipped_b)
@@ -316,11 +327,41 @@ module top_adc_fir_dac #(
         .out_data    (fir_data_b)
     );
 
+    dac_interpolator_100 #(
+        .DATA_W(10),
+        .ACC_W (30)
+    ) u_interpolator_a (
+        .clk      (clk_sample),
+        .rst      (rst_sample),
+        .data_in  (fir_data_a),
+        .in_valid (fir_valid_a),
+        .in_ready (interp_ready_a),
+        .data_out (interp_data_a),
+        .out_valid(interp_valid_a),
+        .overflow (interp_overflow_a)
+    );
+
+    dac_interpolator_100 #(
+        .DATA_W(10),
+        .ACC_W (30)
+    ) u_interpolator_b (
+        .clk      (clk_sample),
+        .rst      (rst_sample),
+        .data_in  (fir_data_b),
+        .in_valid (fir_valid_b),
+        .in_ready (interp_ready_b),
+        .data_out (interp_data_b),
+        .out_valid(interp_valid_b),
+        .overflow (interp_overflow_b)
+    );
+
     // 任何双路valid失配都会阻止DAC接收半组数据，并留下粘滞状态供ILA检查。
     always_ff @(posedge clk_sample) begin
         if (rst_sample)
             valid_mismatch <= 1'b0;
-        else if (dac_valid_a != dac_valid_b)
+        else if ((dac_valid_a != dac_valid_b) ||
+                 (interp_ready_a != interp_ready_b) ||
+                 (fir_valid_a && (!interp_ready_a || !interp_ready_b)))
             valid_mismatch <= 1'b1;
     end
 

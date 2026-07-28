@@ -31,6 +31,7 @@ set hdl_files [list \
     [file join $fpga_dir src hdl clock_tree.sv] \
     [file join $fpga_dir src hdl adc_capture.sv] \
     [file join $fpga_dir src hdl dac_output.sv] \
+    [file join $fpga_dir src hdl dac_interpolator_100.sv] \
     [file join $fpga_dir src hdl fir_data_adapter.sv] \
     [file join $fpga_dir src hdl adc_decimator_100.v] \
     [file join $fpga_dir src hdl fir_filter.v] \

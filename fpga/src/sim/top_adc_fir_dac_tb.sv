@@ -23,7 +23,8 @@
 //
 // 输出格式与检查：
 //   参考模型直接读取装载完成后的Q1.31系数，对每个实际decim_valid样本执行129抽头
-//   64位卷积，再按RTL的右移/饱和规则比较两路FIR结果；随后检查DAC偏移码和反相。
+//   64位卷积，再按RTL的右移/饱和规则比较两路FIR结果；随后检查双路插值连续性、
+//   插值器到DAC的一拍数据对齐、偏移码和反相。
 //
 // 错误行为：
 //   任一协议、数据、延迟对齐、复位或物理接口断言失败均调用$fatal。全部检查完成
@@ -59,11 +60,14 @@ module top_adc_fir_dac_tb;
     logic expected_pending;
     logic [9:0] expected_dac_a;
     logic [9:0] expected_dac_b;
+    logic [9:0] dac_stage_a;
+    logic [9:0] dac_stage_b;
+    logic dac_stage_valid;
     logic dac_pending;
-    int unsigned dac_negedges_left;
     int unsigned adc_edge_count_a;
     int unsigned adc_edge_count_b;
     int unsigned output_count;
+    int unsigned interp_output_count;
     integer model_index;
     longint signed accumulator_a;
     longint signed accumulator_b;
@@ -174,7 +178,9 @@ module top_adc_fir_dac_tb;
         if (dut.rst_sample || dut.coef_clear) begin
             expected_pending = 1'b0;
             dac_pending = 1'b0;
+            dac_stage_valid = 1'b0;
             output_count = 0;
+            interp_output_count = 0;
             for (model_index = 0; model_index < TAP_COUNT-1;
                  model_index = model_index + 1) begin
                 history_a[model_index] = 10'sd0;
@@ -223,29 +229,36 @@ module top_adc_fir_dac_tb;
                     else $fatal(1, "FIR通道B错误：实际=%0d，期望=%0d，序号=%0d",
                                 dut.fir_data_b, expected_fir_b, output_count);
                 expected_pending = 1'b0;
-                expected_dac_a = fir_to_dac_code(expected_fir_a);
-                expected_dac_b = fir_to_dac_code(expected_fir_b);
-                dac_pending = 1'b1;
-                dac_negedges_left = 2;
                 output_count = output_count + 1;
+            end
+
+            assert (dut.interp_valid_a == dut.interp_valid_b)
+                else $fatal(1, "双路插值valid失配，时间=%0t", $time);
+            if (dut.interp_valid_a) begin
+                // dac_output在本上升沿接收上一拍适配结果，随后下降沿更新物理数据。
+                if (dac_stage_valid) begin
+                    expected_dac_a = dac_stage_a;
+                    expected_dac_b = dac_stage_b;
+                    dac_pending = 1'b1;
+                end
+                dac_stage_a = fir_to_dac_code(dut.interp_data_a);
+                dac_stage_b = fir_to_dac_code(dut.interp_data_b);
+                dac_stage_valid = 1'b1;
+                interp_output_count = interp_output_count + 1;
             end
         end
     end
 
     always @(negedge dut.clk_sample) begin
-        #1ps;
+        #1ns;
         if (!dut.rst_sample && dac_pending) begin
-            if (dac_negedges_left > 1) begin
-                dac_negedges_left = dac_negedges_left - 1;
-            end else begin
-                assert (dac_data_a === expected_dac_a)
-                    else $fatal(1, "DAC通道A码制错误：实际=%03h，期望=%03h",
-                                dac_data_a, expected_dac_a);
-                assert (dac_data_b === expected_dac_b)
-                    else $fatal(1, "DAC通道B码制错误：实际=%03h，期望=%03h",
-                                dac_data_b, expected_dac_b);
-                dac_pending = 1'b0;
-            end
+            assert (dac_data_a === expected_dac_a)
+                else $fatal(1, "DAC通道A插值码错误：实际=%03h，期望=%03h",
+                            dac_data_a, expected_dac_a);
+            assert (dac_data_b === expected_dac_b)
+                else $fatal(1, "DAC通道B插值码错误：实际=%03h，期望=%03h",
+                            dac_data_b, expected_dac_b);
+            dac_pending = 1'b0;
         end
     end
 
@@ -260,7 +273,10 @@ module top_adc_fir_dac_tb;
         output_count = 0;
         expected_pending = 1'b0;
         dac_pending = 1'b0;
-        dac_negedges_left = 0;
+        dac_stage_a = 10'd512;
+        dac_stage_b = 10'd512;
+        dac_stage_valid = 1'b0;
+        interp_output_count = 0;
         expected_fir_a = 10'sd0;
         expected_fir_b = 10'sd0;
         expected_dac_a = 10'd512;
@@ -299,9 +315,11 @@ module top_adc_fir_dac_tb;
                 dut.u_fir_b.coeff[128] == dut.u_fir_a.coeff[128])
             else $fatal(1, "双路FIR系数不一致");
 
-        wait (output_count >= 10 && !dac_pending);
+        wait (output_count >= 10 && interp_output_count >= 950 && !dac_pending);
         assert (!dut.valid_mismatch)
             else $fatal(1, "运行期间出现双路valid失配");
+        assert (!dut.interp_overflow_a && !dut.interp_overflow_b)
+            else $fatal(1, "FIR输出间隔不足，插值器发生输入溢出");
         assert (!dut.bram_addrb_error)
             else $fatal(1, "系数BRAM出现非法地址");
 
