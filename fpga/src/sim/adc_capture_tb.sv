@@ -14,8 +14,7 @@
 //   本 testbench 使用 25 ns 输出延迟模型模拟两颗 3PA1030，无外部连接。
 //
 // 时钟与复位：
-//   clk 和 clk_drive 周期约 33.333 ns，clk_drive 相对 clk 延后 45°；rst 为
-//   高有效同步复位。
+//   clk 和 clk_drive 周期约 33.333 ns 且同相；rst 为高有效同步复位。
 //
 // 输入格式：两路 ADC 模型产生 10 位无符号递增码。
 //
@@ -80,10 +79,9 @@ module adc_capture_tb;
         forever #16.6665ns clk = ~clk;
     end
 
-    // 驱动时钟相对捕获时钟延后 45°，30 MHz 下约为 4.167 ns。
+    // 驱动时钟与捕获时钟同频同相，外部数据在本捕获沿之后开始变化。
     initial begin
         clk_drive = 1'b0;
-        #4.166625ns;
         forever #16.6665ns clk_drive = ~clk_drive;
     end
 

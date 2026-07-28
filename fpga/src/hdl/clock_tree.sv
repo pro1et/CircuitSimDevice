@@ -6,8 +6,8 @@
 //
 // 主要功能：
 //   使用 7 系列 FPGA 的 MMCM 专用时钟资源，将板载 50 MHz PL 时钟转换为
-//   100 MHz 系统时钟、30 MHz ADC 捕获时钟和相对捕获时钟延后 45° 的 ADC
-//   驱动时钟，并为两个逻辑时钟域生成复位信号。
+//   100 MHz 系统时钟、30 MHz ADC 捕获时钟和与捕获时钟同相的 ADC 驱动时钟，
+//   并为两个逻辑时钟域生成复位信号。
 //
 // 使用方法：
 //   1. 将 clk_50m 连接到 Mizar Z7 板载 50 MHz PL 时钟输入。
@@ -55,7 +55,7 @@ module clock_tree (
 
     output wire logic clk_100m,  // 100 MHz 全局时钟，MMCM 锁定后供系统逻辑使用
     output wire logic clk_30m,   // 30 MHz 全局时钟，MMCM 锁定后供 ADC 逻辑使用
-    output wire logic clk_30m_adc, // 30 MHz ADC 驱动时钟，相对 clk_30m 延后 45°
+    output wire logic clk_30m_adc, // 30 MHz ADC 驱动时钟，与 clk_30m 同频同相
     output wire logic rst_100m,  // 100 MHz 域复位，高有效、异步置位同步释放
     output wire logic rst_30m,   // 30 MHz 域复位，高有效、异步置位同步释放
     output wire logic locked     // MMCM 锁定状态，高电平表示输出时钟已稳定
@@ -77,7 +77,9 @@ module clock_tree (
         .CLKOUT0_DIVIDE_F(9.0),
         .CLKOUT1_DIVIDE  (30),
         .CLKOUT2_DIVIDE  (30),
-        .CLKOUT2_PHASE   (45.0),
+        // 同相转发使外部 ADC 时钟在内部捕获沿之后到达管脚，为下一捕获沿
+        // 留出完整周期；45° 延后方案在 25 ns 最大 tCO 约束下没有建立裕量。
+        .CLKOUT2_PHASE   (0.0),
         .DIVCLK_DIVIDE   (1),
         .STARTUP_WAIT    ("FALSE")
     ) u_mmcm (

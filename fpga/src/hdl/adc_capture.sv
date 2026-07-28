@@ -10,7 +10,7 @@
 //
 // 使用方法：
 //   1. 将 clk 连接到统一时钟树输出的 30 MHz ADC 捕获时钟。
-//   2. 将 clk_drive 连接到同频且相对 clk 延后 45° 的 ADC 驱动时钟。
+//   2. 将 clk_drive 连接到与 clk 同频同相的 ADC 驱动时钟。
 //   3. 将 rst 连接到 clk 时钟域的高有效同步复位。
 //   4. 将 adc_clk_a/adc_clk_b、adc_oe_a/adc_oe_b 和两路数据总线连接到
 //      GPIO2 转接板对应的 CLK_1/CLK_2、OE_1/OE_2 和 D0~D9。
@@ -18,7 +18,7 @@
 //
 // 连接说明：
 //   clk        <- clock_tree 的 30 MHz ADC 时钟输出
-//   clk_drive  <- clock_tree 相对 clk 延后 45° 的 30 MHz ADC 驱动时钟输出
+//   clk_drive  <- clock_tree 与 clk 同频同相的 30 MHz ADC 驱动时钟输出
 //   rst        <- clock_tree 的 30 MHz 域高有效复位输出
 //   adc_data_a <- ADC 通道 1 的 D0_1~D9_1；D9 为最高位
 //   adc_data_b <- ADC 通道 2 的 D0_2~D9_2；D9 为最高位
@@ -32,7 +32,8 @@
 //
 // 时钟与复位：
 //   所有内部逻辑工作在 clk 域。ODDR 仅将 clk_drive 转发到 ADC，不产生新频率。
-//   clk_drive 与 clk 必须同频，且 clk_drive 上升沿相对 clk 上升沿延后 45°。
+//   clk_drive 与 clk 必须同频同相。外部转发时钟经过 ODDR 和输出缓冲后到达 ADC，
+//   因而 ADC 在内部捕获沿之后才开始下一次转换，数据由下一个 clk 上升沿捕获。
 //   rst 为高有效同步复位；ODDR 使用异步复位，以便复位时立即停止外部 ADC 时钟。
 //
 // 输入格式：
@@ -63,7 +64,7 @@ module adc_capture #(
     parameter int unsigned STARTUP_CYCLES = 6  // 启动屏蔽周期数，单位为 clk 周期，必须大于等于 1
 ) (
     input  wire  logic       clk,         // ADC 接口捕获时钟，推荐 30 MHz，连续运行
-    input  wire  logic       clk_drive,   // ADC 驱动时钟，与 clk 同频并相对其延后 45°
+    input  wire  logic       clk_drive,   // ADC 驱动时钟，与 clk 同频同相
     input  wire  logic       rst,         // clk 域高有效同步复位
 
     input  wire  logic [9:0] adc_data_a,  // 通道 1 原始并行数据，无符号直二进制，D9 为最高位
@@ -74,8 +75,8 @@ module adc_capture #(
     output wire  logic       adc_oe_a,    // 通道 1 输出控制，高电平为高阻、低电平正常输出
     output wire  logic       adc_oe_b,    // 通道 2 输出控制，高电平为高阻、低电平正常输出
 
-    output       logic [9:0] data_a,      // 通道 1 已寄存采样值，无符号直二进制
-    output       logic [9:0] data_b,      // 通道 2 已寄存采样值，无符号直二进制
+    (* IOB = "TRUE" *) output logic [9:0] data_a, // 通道 1 输入 IOB 寄存采样值，无符号直二进制
+    (* IOB = "TRUE" *) output logic [9:0] data_b, // 通道 2 输入 IOB 寄存采样值，无符号直二进制
     output       logic       out_valid    // 双通道输出有效，启动后持续为高，每周期一组
 );
 

@@ -47,7 +47,8 @@ module clock_tree_tb;
     time edge_time;
     time period_100m;
     time period_30m;
-    realtime edge_realtime;
+    realtime sample_edge_realtime;
+    realtime drive_edge_realtime;
     realtime phase_30m_adc;
 
     clock_tree dut (
@@ -100,12 +101,22 @@ module clock_tree_tb;
         assert (period_30m >= 999999ps && period_30m <= 1000001ps)
             else $fatal(1, "30 MHz 的 30 周期总时长错误：实际=%0t，期望=1 us", period_30m);
 
-        @(posedge clk_30m);
-        edge_realtime = $realtime;
-        @(posedge clk_30m_adc);
-        phase_30m_adc = $realtime - edge_realtime;
-        assert (phase_30m_adc >= 4.165ns && phase_30m_adc <= 4.168ns)
-            else $fatal(1, "ADC 驱动时钟相位错误：实际延后=%0.3f ns，期望约=4.167 ns",
+        fork
+            begin
+                @(posedge clk_30m);
+                sample_edge_realtime = $realtime;
+            end
+            begin
+                @(posedge clk_30m_adc);
+                drive_edge_realtime = $realtime;
+            end
+        join
+        phase_30m_adc = drive_edge_realtime - sample_edge_realtime;
+        if (phase_30m_adc < 0.0) begin
+            phase_30m_adc = -phase_30m_adc;
+        end
+        assert (phase_30m_adc <= 1ps)
+            else $fatal(1, "ADC 驱动时钟相位错误：实际相差=%0.3f ns，期望同相",
                         phase_30m_adc);
 
         // 运行过程中复位必须立即让 MMCM 失锁，并保持两个输出域处于复位。
